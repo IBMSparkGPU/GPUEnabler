@@ -1,0 +1,277 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.ibm.gpuenabler
+
+import org.apache.spark.rdd._
+import org.apache.spark.storage.RDDBlockId
+import org.apache.spark.{Partition, TaskContext, _}
+
+import scala.language.implicitConversions
+import scala.reflect.ClassTag
+
+private[gpuenabler] case class Key(val rdd : RDD[Int], key : RDDBlockId)
+
+private[gpuenabler] object GPUKeyManager {
+
+  private var gpuMemoryManagerKey : Option[Key] = None;
+  private var cudaManagerKey : Option[Key] = None;
+
+
+  def getGPUMemoryManagerKey(sc : SparkContext) = {
+    gpuMemoryManagerKey.getOrElse {
+      println("Creating new gpuMemoryManagerKey")
+      gpuMemoryManagerKey = Some {
+        val x = sc.parallelize(1 to 1);
+        Key(x, RDDBlockId(x.id, 0)) }
+    }
+    gpuMemoryManagerKey.get
+  }
+
+  def getCudaManagerKey(sc : SparkContext) = {
+    cudaManagerKey.getOrElse {
+      cudaManagerKey = Some {
+        println("Creating new CUDAManagerKey")
+        val x = sc.parallelize(1 to 1);
+        Key(x, RDDBlockId(x.id, 0))
+      }
+    }
+    cudaManagerKey.get
+  }
+}
+
+/**
+  * An RDD that applies the provided CUDA kernel to every partition of the parent RDD.
+  *
+  * @param prev previous RDD reference
+  * @param f  lamdba to be executed on each element of this RDD
+  * @param kernel holds the External function which points to the GPU native
+  *               function name and the GPU kernel associated with it
+  * @param preservesPartitioning Default `true` to preserve the partitioning
+  * @param outputArraySizes If the expected result is an array folded in a linear
+  *                         form, specific a sequence of the array length for every
+  *                         output columns
+  * @param inputFreeVariables Specify a list of free variable that need to be
+  *                           passed in to the GPU kernel function, if any
+  */
+private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
+       prev: RDD[T],
+       f: (TaskContext, Int, Iterator[T]) => Iterator[U], // (TaskContext, partition index, iterator)
+       kernel : ExternalFunction = null,
+       preservesPartitioning: Boolean = false,
+       outputArraySizes: Seq[Int] = null,
+       inputFreeVariables: Seq[Any] = null)
+  extends RDD[U](prev) {
+
+  override val partitioner = if (preservesPartitioning) firstParent[T].partitioner else None
+
+  override def getPartitions: Array[Partition] = firstParent[T].partitions
+
+  private val inputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
+  private val outputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[U]
+
+  override def compute(split: Partition, context: TaskContext): Iterator[U] = {
+    // Use the block ID of this particular (rdd, partition)
+    val blockId = RDDBlockId(this.id, split.index)
+
+    val inputHyIter = firstParent[T].iterator(split, context) match {
+      case hyIter: HybridIterator[T] => {
+       hyIter
+      }
+      case iter: Iterator[T] => {
+        // println("Converting Regular Iterator to hybridIterator")
+        val parentBlockId = RDDBlockId(firstParent[T].id, split.index)
+        val hyIter = new HybridIterator[T](iter.toArray, inputColSchema,
+          kernel.inputColumnsOrder, Some(parentBlockId))
+        hyIter
+      }
+    }
+
+    val resultIter = kernel.compute[U, T](inputHyIter,
+      Seq(inputColSchema, outputColSchema), None,
+      outputArraySizes, inputFreeVariables, Some(blockId))
+
+    resultIter
+  }
+}
+
+/**
+  * An RDD that convert partition's iterator to a format supported by GPU computation
+  * to every partition of the parent RDD.
+  */
+private[gpuenabler] class ConvertGPUPartitionsRDD[T: ClassTag](
+        prev: RDD[T],
+        preservesPartitioning: Boolean = false)
+  extends RDD[T](prev) {
+
+  override val partitioner = if (preservesPartitioning) firstParent[T].partitioner else None
+
+  override def getPartitions: Array[Partition] = firstParent[T].partitions
+
+  val inputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
+
+  override def compute(split: Partition, context: TaskContext): Iterator[T] = {
+    // Use the block ID of this particular (rdd, partition)
+    val blockId = RDDBlockId(this.id, split.index)
+
+    val resultIter = firstParent[T].iterator(split, context) match {
+      case hyIter: HybridIterator[T] => {
+        hyIter
+      }
+      case iter: Iterator[T] => {
+        // println("Converting Regular Iterator to hybridIterator")
+        // val parentBlockId = RDDBlockId(firstParent[T].id, split.index)
+        val hyIter = new HybridIterator[T](iter.toArray, inputColSchema,
+          null, Some(blockId))
+        hyIter
+      }
+    }
+
+    resultIter
+  }
+}
+
+
+/**
+  * Adds additional functionality to existing RDD's which are
+  * specific to performing computation on Nvidia GPU's attached
+  * to executors. To use these additional functionality import
+  * the following packages,
+  *
+  * {{{
+  * import org.apache.spark.cuda._
+  * import org.apache.spark.cuda.CUDARDDImplicits._
+  * }}}
+  *
+  */
+object CUDARDDImplicits {
+
+  implicit class CUDARDDFuncs[T: ClassTag](rdd: RDD[T])
+    extends Serializable {
+
+    def sc = rdd.sparkContext
+
+    /**
+      * This function is used to mark the respective RDD's data to
+      * be cached in GPU for future computation rather than cleaning it
+      * up every time the RDD is processed. 
+      * 
+      * By marking an RDD to cache in GPU, huge performance gain can
+      * be achieved as data movement between CPU memory and GPU 
+      * memory is considered costly.
+      */
+    def cacheGpu() = {
+      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(rdd.id); rdd
+    }
+
+    /**
+      * This function is used to clean up all the caches in GPU held
+      * by the respective RDD on the various partitions.
+      */
+    def unCacheGpu() = {
+      GPUSparkEnv.get.gpuMemoryManager.unCacheGPUSlaves(rdd.id); rdd
+    }
+
+    /**
+      * Return a new RDD by applying a function to all elements of this RDD.
+      *
+      * @param f  Specify the lambda to apply to all elements of this RDD
+      * @param extfunc  Provide the ExternalFunction instance which points to the
+      *                 GPU native function to be executed for each element in
+      *                 this RDD
+      * @param outputArraySizes If the expected result is an array folded in a linear
+      *                         form, specific a sequence of the array length for every
+      *                         output columns
+      * @param inputFreeVariables Specify a list of free variable that need to be
+      *                           passed in to the GPU kernel function, if any
+      * @tparam U Result RDD type
+      * @return Return a new RDD of type U after executing the user provided
+      *         GPU function on all elements of this RDD
+      */
+    def mapExtFunc[U: ClassTag](f: T => U, extfunc: ExternalFunction,
+                                outputArraySizes: Seq[Int] = null,
+                                inputFreeVariables: Seq[Any] = null): RDD[U] = {
+      import org.apache.spark.gpuenabler.CUDAUtils
+      val cleanF = CUDAUtils.cleanFn(sc, f) // sc.clean(f)
+      new MapGPUPartitionsRDD[U, T](rdd, (context, pid, iter) => iter.map(cleanF),
+        extfunc, outputArraySizes = outputArraySizes, inputFreeVariables = inputFreeVariables)
+    }
+
+    /**
+      * Trigger a reduce action on all elements of this RDD.
+      *
+      * @param f Specify the lambda to apply to all elements of this RDD
+      * @param extfunc Provide the ExternalFunction instance which points to the
+      *                 GPU native function to be executed for each element in
+      *                 this RDD
+      * @param outputArraySizes If the expected result is an array folded in a linear
+      *                         form, specific a sequence of the array length for every
+      *                         output columns
+      * @param inputFreeVariables Specify a list of free variable that need to be
+      *                           passed in to the GPU kernel function, if any
+      * @return Return the result after performing a reduced operation on all
+      *         elements of this RDD
+      */
+    def reduceExtFunc(f: (T, T) => T, extfunc: ExternalFunction,
+                      outputArraySizes: Seq[Int] = null,
+                      inputFreeVariables: Seq[Any] = null): T = {
+      import com.ibm.gpuenabler.HybridIterator
+      import org.apache.spark.gpuenabler.CUDAUtils
+
+      val cleanF = CUDAUtils.cleanFn(sc, f) // sc.clean(f)
+
+      val inputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
+      val outputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
+
+      val reducePartition: (TaskContext, Iterator[T]) => Option[T] =
+        (ctx: TaskContext, data: Iterator[T]) => data match {
+          case col: HybridIterator[T] =>
+            if (col.numElements != 0) {
+              val colIter = extfunc.compute[T, T](col, Seq(inputColSchema, outputColSchema),
+                Some(1), outputArraySizes,
+                inputFreeVariables, None).asInstanceOf[HybridIterator[T]]
+              Some(colIter.next)
+            } else {
+              None
+            }
+        }
+
+      var jobResult: Option[T] = None
+      val mergeResult = (index: Int, taskResult: Option[T]) => {
+        if (taskResult.isDefined) {
+          jobResult = jobResult match {
+            case Some(value) => Some(f(value, taskResult.get))
+            case None => taskResult
+          }
+        }
+      }
+      sc.runJob(rdd, reducePartition, 0 until rdd.partitions.length, mergeResult)
+      jobResult.getOrElse(throw new UnsupportedOperationException("empty collection"))
+    }
+
+    /**
+     * Return a new RDD by applying a function to all elements of this RDD.
+     */
+    private[gpuenabler] def convert(x: PartitionFormat, unpersist: Boolean = true): RDD[T] = {
+      val convertedRDD = new ConvertGPUPartitionsRDD[T](rdd)
+      if (unpersist) {
+        rdd.unpersist(false)
+      }
+      convertedRDD
+    }
+  }
+}
