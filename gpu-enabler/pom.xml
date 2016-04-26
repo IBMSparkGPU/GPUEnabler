@@ -129,7 +129,7 @@
             <junitxml>.</junitxml>
             <forkMode>once</forkMode>
             <filereports>WDF TestSuite.txt</filereports>
-            <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms20g -Xmx25G -Xmn20G</argLine>
+            <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms22g -Xmx25G -Xmn20G</argLine>
           </configuration>
           <executions>
             <execution>

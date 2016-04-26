@@ -17,7 +17,7 @@ This library has only one version for Spark 1.5+:
 
 | Spark Version | Compatible version of Spark GPU |
 | ------------- |----------------------|
-| `1.5+`        | `0.1.0`              |
+| `1.5+`        | `1.0.0`              |
 
 ## Linking
 
@@ -43,7 +43,7 @@ This library can also be added to Spark jobs launched through `spark-shell` or `
 For example, to include it when starting the spark shell:
 
 ```
-$ bin/spark-shell --packages com.ibm:gpu-enabler_2.11:0.1.0
+$ bin/spark-shell --packages com.ibm:gpu-enabler_2.11:1.0.0
 ```
 
 Unlike using `--jars`, using `--packages` ensures that this library and its dependencies will be added to the classpath.

@@ -1,5 +1,13 @@
 #!/bin/bash
 
+#
+# Check for Maven
+# 
+type mvn >/dev/null 2>&1 || {
+  echo "Maven is missing to compile the source files. Kindly install maven to proceed."
+  exit -1
+}
+
 CUDA=0
 CUDAVER=0
 #
