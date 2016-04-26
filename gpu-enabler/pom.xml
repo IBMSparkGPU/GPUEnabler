@@ -3,24 +3,19 @@
   <parent>
     <groupId>com.ibm</groupId>
     <artifactId>gpu-enabler-parent</artifactId>
-    <version>0.1.0</version>
+    <version>1.0.0</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
   <groupId>com.ibm</groupId>
   <artifactId>gpu-enabler_2.11</artifactId>
-  <version>0.1.0</version>
+  <version>1.0.0</version>
   <inceptionYear>2016</inceptionYear>
   <packaging>jar</packaging>
   <properties>
-    <scala.version>2.11.7</scala.version>
-    <scala.binary.version>2.11</scala.binary.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-    <PermGen>64m</PermGen>
-    <MaxPermGen>512m</MaxPermGen>
     <CodeCacheSize>512m</CodeCacheSize>
-    <jcuda.version>0.7.0a</jcuda.version>
 <libJ.version>linux-ppc_64</libJ.version>
   </properties>
 
@@ -41,28 +36,6 @@
   </pluginRepositories>
 
   <dependencies>
-    <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-core_2.11</artifactId>
-      <version>2.0.0-SNAPSHOT</version>
-        <exclusions>
-            <exclusion>
-                <!-- make sure wrong scala version is not pulled in -->
-                <groupId>org.scala-lang</groupId>
-                <artifactId>scala-library</artifactId>
-            </exclusion>
-            <exclusion>
-                <!-- make sure wrong scala version is not pulled in -->
-                <groupId>org.scala-lang</groupId>
-                <artifactId>scala-compiler</artifactId>
-            </exclusion>
-            <exclusion>
-                <!-- make sure wrong scala version is not pulled in -->
-                <groupId>org.scala-lang</groupId>
-                <artifactId>scalap</artifactId>
-            </exclusion>
-        </exclusions>
-    </dependency>
     <dependency>
       <groupId>org.mystic</groupId>
       <artifactId>mavenized-jcuda</artifactId>
@@ -114,8 +87,10 @@
             </goals>
             <configuration>
               <includeArtifactIds>libJCudaDriver,libJCudaRuntime</includeArtifactIds>
+              <!--includeArtifactIds>JCudaDriver-native,JCudaRuntime-native</includeArtifactIds-->
               <outputDirectory>${project.build.directory}/lib/</outputDirectory>
               <stripVersion>true</stripVersion>
+              <overWrite>true</overWrite>
             </configuration>
           </execution>
           <execution>
@@ -126,8 +101,10 @@
             </goals>
             <configuration>
               <includeArtifactIds>libJCudaDriver,libJCudaRuntime</includeArtifactIds>
+              <!--includeArtifactIds>JCudaDriver-native,JCudaRuntime-native</includeArtifactIds-->
               <outputDirectory>${project.build.directory}/lib/</outputDirectory>
               <stripVersion>true</stripVersion>
+              <overWrite>true</overWrite>
             </configuration>
           </execution>
           <execution>
@@ -152,7 +129,7 @@
             <junitxml>.</junitxml>
             <forkMode>once</forkMode>
             <filereports>WDF TestSuite.txt</filereports>
-            <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms45g -Xmx60G -Xmn40g -Xgcthreads8 -Xdump:system:none -Xdump:heap:none -Xtrace:none -Xnoloa -Xdisableexplicitgc</argLine>
+            <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms20g -Xmx25G -Xmn20G</argLine>
           </configuration>
           <executions>
             <execution>
@@ -173,14 +150,19 @@
                 <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
                   <resource>lib/libJCudaDriver-linux-ppc_64.so</resource>
                   <file>${project.build.directory}/lib/libJCudaDriver-linux-ppc_64.so</file>
+                  <!--resource>lib/libJCudaDriver-linux-ppc_64.so</resource>
+                  <file>${project.build.directory}/lib/JCudaDriver-native-linux-ppc_64.so</file-->
                 </transformer>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
                   <resource>lib/libJCudaRuntime-linux-ppc_64.so</resource>
                   <file>${project.build.directory}/lib/libJCudaRuntime-linux-ppc_64.so</file>
+                  <!--resource>lib/libJCudaRuntime-linux-ppc_64.so</resource>
+                  <file>${project.build.directory}/lib/JCudaRuntime-native-linux-ppc_64.so</file -->
                 </transformer>
               </transformers>
           <artifactSet>
              <includes>
+               <!-- include>org.jcuda:jcuda</include -->
                <include>org.mystic:mavenized-jcuda</include>
                <include>jcuda:**</include>
              </includes>

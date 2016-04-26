@@ -26,7 +26,7 @@ You can link against this library (for Spark 1.5+) in your program at the follow
 Using SBT:
 
 ```
-libraryDependencies += "com.ibm" %% "gpu-enabler_2.11" % "0.1.0"
+libraryDependencies += "com.ibm" %% "gpu-enabler_2.11" % "1.0.0"
 ```
 
 Using Maven:
@@ -35,7 +35,7 @@ Using Maven:
 <dependency>
     <groupId>com.ibm</groupId>
     <artifactId>gpu-enabler_2.11</artifactId>
-    <version>0.1.0</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
@@ -64,7 +64,7 @@ This library is cross-published for Scala 2.11, so 2.11 users should replace 2.1
 The recommended way to load and use GPU kernel is by using the following APIs, which are available in Scala.
 
 The package comes with a set of examples. They can be tried out as follows,
-`./bin/run-example GpuEnablerExamples`
+`./bin/run-example GpuEnablerExample`
 
 The Nvidia kernel used in these sample programs is available for download
 [here](https://github.com/ibmsoe/GPUEnabler/blob/master/examples/src/main/resources/GpuEnablerExamples.ptx).

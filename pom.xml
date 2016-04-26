@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.ibm</groupId>
   <artifactId>gpu-enabler-parent</artifactId>
-  <version>0.1.0</version>
+  <version>1.0.0</version>
   <inceptionYear>2016</inceptionYear>
   <packaging>pom</packaging>
   <properties>
@@ -15,12 +15,35 @@
     <CodeCacheSize>512m</CodeCacheSize>
   </properties>
 
+  <profiles>
+    <profile>
+      <id>jcuda70a</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+      <properties>
+        <jcuda.version>0.7.0a</jcuda.version>
+      </properties>
+    </profile>
+    <profile>
+      <id>jcuda75</id>
+      <properties>
+        <jcuda.version>0.7.5</jcuda.version>
+      </properties>
+    </profile>
+  </profiles>
+
   <repositories>
     <repository>
       <id>scala-tools.org</id>
       <name>Scala-Tools Maven2 Repository</name>
       <url>http://scala-tools.org/repo-releases</url>
     </repository>
+    <!-- repository>
+      <id>jcuda.local</id>
+      <name>JCuda</name>
+      <url>file:${project.basedir}/repo</url>
+    </repository -->
   </repositories>
 
   <pluginRepositories>
@@ -32,6 +55,7 @@
   </pluginRepositories>
 
   <modules>
+    <module>mavenized-jcuda</module>
     <module>gpu-enabler</module>
     <module>examples</module>
   </modules>
@@ -40,7 +64,7 @@
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-core_2.11</artifactId>
-      <version>2.0.0-SNAPSHOT</version>
+      <version>1.6.1</version>
         <exclusions>
             <exclusion>
                 <!-- make sure wrong scala version is not pulled in -->
@@ -59,11 +83,8 @@
             </exclusion>
         </exclusions>
     </dependency>
-    <dependency>
-      <groupId>org.mystic</groupId>
-      <artifactId>mavenized-jcuda</artifactId>
-      <version>0.1.2</version>
-    </dependency>
+
+
     <dependency>
       <groupId>org.scala-lang</groupId>
       <artifactId>scala-library</artifactId>

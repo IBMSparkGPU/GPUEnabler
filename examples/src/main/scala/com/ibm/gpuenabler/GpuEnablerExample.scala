@@ -23,7 +23,8 @@ import com.ibm.gpuenabler.CUDARDDImplicits._
 object GpuEnablerExample {
 
   def main(args: Array[String]) = {
-    val sparkConf = new SparkConf().setAppName("GpuEnablerExample1")
+    val masterURL = if (args.length > 0) args(0) else "local[*]"
+    val sparkConf = new SparkConf().setAppName("GpuEnablerExample1").setMaster(masterURL)
     val sc = new SparkContext(sparkConf)
 
     val ptxURL = getClass.getResource("/GpuEnablerExamples.ptx")
