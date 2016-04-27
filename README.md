@@ -11,13 +11,12 @@ The following capabilities are provided by this package,
 
 ## Requirements
 
-This documentation is for Spark 1.5+.
+This package is compatible with Spark 1.5+ and scala 2.11
 
-This library has only one version for Spark 1.5+:
 
-| Spark Version | Compatible version of Spark GPU |
-| ------------- |----------------------|
-| `1.5+`        | `0.1.0`              |
+| Spark Version |  Scala Version | Compatible version of Spark GPU |
+| ------------- |-----------------|----------------------|
+| `1.5+`        | `2.11`          |`1.0.0`               |
 
 ## Linking
 
@@ -26,7 +25,7 @@ You can link against this library (for Spark 1.5+) in your program at the follow
 Using SBT:
 
 ```
-libraryDependencies += "com.ibm" %% "gpu-enabler_2.11" % "0.1.0"
+libraryDependencies += "com.ibm" %% "gpu-enabler_2.11" % "1.0.0"
 ```
 
 Using Maven:
@@ -35,7 +34,7 @@ Using Maven:
 <dependency>
     <groupId>com.ibm</groupId>
     <artifactId>gpu-enabler_2.11</artifactId>
-    <version>0.1.0</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
@@ -43,19 +42,18 @@ This library can also be added to Spark jobs launched through `spark-shell` or `
 For example, to include it when starting the spark shell:
 
 ```
-$ bin/spark-shell --packages com.ibm:gpu-enabler_2.11:0.1.0
+$ bin/spark-shell --packages com.ibm:gpu-enabler_2.11:1.0.0
 ```
 
 Unlike using `--jars`, using `--packages` ensures that this library and its dependencies will be added to the classpath.
 The `--packages` argument can also be used with `bin/spark-submit`.
 
-This library is cross-published for Scala 2.11, so 2.11 users should replace 2.10 with 2.11 in the commands listed above.
 
 ## Support for GPU Enabler package
 
-* Support only x86_64 and ppc64le
+* Support x86_64 and ppc64le
 * Support OpenJDK and IBM JDK
-* Support only NVIDIA GPU with CUDA (we confirmed with CUDA 7.0)
+* Support NVIDIA GPU with CUDA (we confirmed with CUDA 7.0)
 * Support CUDA 7.0 and 7.5 (should work with CUDA 6.0 and 6.5)
 * Support scalar variables in primitive scalar types and primitive array in RDD
 
@@ -64,11 +62,11 @@ This library is cross-published for Scala 2.11, so 2.11 users should replace 2.1
 The recommended way to load and use GPU kernel is by using the following APIs, which are available in Scala.
 
 The package comes with a set of examples. They can be tried out as follows,
-`./bin/run-example GpuEnablerExamples`
+`./bin/run-example GpuEnablerExample`
 
 The Nvidia kernel used in these sample programs is available for download
-[here](https://github.com/ibmsoe/GPUEnabler/blob/master/examples/src/main/resources/GpuEnablerExamples.ptx).
-The source for this kernel can be found [here](https://github.com/ibmsoe/GPUEnabler/blob/master/examples/src/main/resources/GpuEnablerExamples.cu).
+[here](https://github.com/IBMSparkGPU/GPUEnabler/blob/master/examples/src/main/resources/GpuEnablerExamples.ptx).
+The source for this kernel can be found [here](https://github.com/IBMSparkGPU/GPUEnabler/blob/master/examples/src/main/resources/GpuEnablerExamples.cu).
 
 
 ### Scala API
@@ -107,18 +105,20 @@ val output = sc.parallelize(1 to n, 1)
 
 ### Pre-requisites
 
-* NVidia GPU with CUDA support of 7.0+.
-* Necessary CUDA drivers & Runtime drivers should be installed.
-* Mavenized jcuda should be available. If not, follow the steps,
-```
-$ git clone git@github.com:MysterionRise/mavenized-jcuda.git
-$ edit mavenized-jcuda/pom.xml
-  <jcuda.version>0.7.0a</jcuda.version>  // set CUDA version (e.g. 0.7.0a, 0.7.5, ...)
-$ cd mavenized-jcuda && mvn install && cd ..
-```
+* NVidia GPU card with CUDA support of 7.0+.
+* Install CUDA drivers & Runtime drivers for your platform from [here](https://developer.nvidia.com/cuda-downloads).
+
 This library is built with [Maven](https://maven.apache.org/guides/index.html).  
-To build a JAR file simply run the shell script after cloning this repository,
-`./compile.sh` from the project root.
+
+To build a JAR file please follow these steps,
+* `git clone https://github.com/IBMSparkGPU/GPUEnabler.git`
+* `cd GPUEnabler`
+* `./compile.sh`
+
+Note:
+* If mvn is not available in $PATH, export MVN_CMD="\<path_to_mvn_binary>" 
+* If you want to use mvn from spark/build directory, add "--force" argument to `./compile.sh`
+
 
 ## Testing
 To run the tests, you should run `mvn test`.

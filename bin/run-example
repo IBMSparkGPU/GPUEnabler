@@ -17,18 +17,8 @@
 # limitations under the License.
 #
 
-if [ -z "${SPARK_HOME}" ]; then
-    echo "SPARK_HOME environment variable is not set"
-    exit 1
-fi
-
-export SCALA_VERSION=2.11
-export PACKAGE_VERSION=0.1.0
-
 export BASE_DIR="$(cd "`dirname "$0"`"/..; pwd)"
 EXAMPLES_DIR="${BASE_DIR}"/examples
-
-. "${SPARK_HOME}"/bin/load-spark-env.sh
 
 if [ -n "$1" ]; then
   EXAMPLE_CLASS="$1"
@@ -41,48 +31,14 @@ else
   exit 1
 fi
 
-# Get this package Jars
-P_JAR_PATH="${BASE_DIR}/gpu-enabler/target"
-
-PACKAGE_JAR="${P_JAR_PATH}/gpu-enabler_${SCALA_VERSION}-${PACKAGE_VERSION}.jar"
-
-if [[ ! -e "$PACKAGE_JAR" ]]; then
-    echo "Failed to find package jar ${PACKAGE_JAR} in ${P_JAR_PATH}" 1>&2
-    echo "You need to build the package before running this program" 1>&2
-    exit 1
-fi
-
-export PACKAGE_JAR
-
-# Get this package examples Jars
-JAR_PATH="${EXAMPLES_DIR}/target"
-
-SPARK_EXAMPLES_JAR="${JAR_PATH}/gpu-enabler-examples_${SCALA_VERSION}-${PACKAGE_VERSION}.jar"
-
-if [[ ! -e "$SPARK_EXAMPLES_JAR" ]]; then
-    echo "Failed to find package jar ${SPARK_EXAMPLES_JAR} in ${JAR_PATH}" 1>&2
-    echo "You need to build the package with examples before running this program" 1>&2
-    exit 1
-fi
-
-export SPARK_EXAMPLES_JAR
-
 EXAMPLE_MASTER=${MASTER:-"local[*]"}
 
 if [[ ! $EXAMPLE_CLASS == com.ibm.gpuenabler* ]]; then
   EXAMPLE_CLASS="com.ibm.gpuenabler.$EXAMPLE_CLASS"
 fi
 
-echo "Executing : ${SPARK_HOME}"/bin/spark-submit \
-  --master $EXAMPLE_MASTER \
-  --class $EXAMPLE_CLASS \
-  --jars $PACKAGE_JAR \
-  "$SPARK_EXAMPLES_JAR" \
-  "$@"
+echo "Executing : mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs=\"$EXAMPLE_MASTER\""
 
-exec "${SPARK_HOME}"/bin/spark-submit \
-  --master $EXAMPLE_MASTER \
-  --class $EXAMPLE_CLASS \
-  --jars $PACKAGE_JAR \
-  "$SPARK_EXAMPLES_JAR" \
-  "$@"
+cd $EXAMPLES_DIR
+
+mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs="$EXAMPLE_MASTER"

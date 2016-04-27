@@ -2,6 +2,7 @@
 SCRIPT_DIR=$(cd $(dirname $(readlink -f $0 || echo $0));pwd -P)
 
 DIR=$SCRIPT_DIR/..
+LIBPREFIX="lib"
 
 #ABSOLUTE_DIR=`realpath $DIR`
 ABSOLUTE_DIR=`readlink -e $DIR`
@@ -64,9 +65,11 @@ done
 shift $((OPTIND - 1))
 
 if [ ! -z $JARFILE ] ; then 
-    addlib2jar $JARFILE libJCudaDriver 
+    # addlib2jar $JARFILE libJCudaDriver
+    addlib2jar $JARFILE JCudaDriver-native 
     if [ $? == 1 ]; then
-      addlib2jar $JARFILE libJCudaRuntime
+      # addlib2jar $JARFILE libJCudaRuntime
+      addlib2jar $JARFILE JCudaRuntime-native
       if [ $? == 1 ]; then
         exit 0
       fi

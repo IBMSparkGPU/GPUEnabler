@@ -61,12 +61,13 @@ object SparkGPULR {
 
     showWarning()
 
-    val sparkConf = new SparkConf().setAppName("SparkGPULR")
+    val masterURL = if (args.length > 0) args(0) else "local[*]"
+    val sparkConf = new SparkConf().setAppName("SparkGPULR").setMaster(masterURL)
     val sc = new SparkContext(sparkConf)
-    val numSlices = if (args.length > 0) args(0).toInt else 2
-    val N = if (args.length > 1) args(1).toInt else 10000  // Number of data points
-    val D = if (args.length > 2) args(2).toInt else 10   // Numer of dimensions
-    val ITERATIONS = if (args.length > 3) args(3).toInt else 5
+    val numSlices = if (args.length > 1) args(1).toInt else 2
+    val N = if (args.length > 2) args(2).toInt else 10000  // Number of data points
+    val D = if (args.length > 3) args(3).toInt else 10   // Numer of dimensions
+    val ITERATIONS = if (args.length > 4) args(4).toInt else 5
 
     val R = 0.7  // Scaling factor
 

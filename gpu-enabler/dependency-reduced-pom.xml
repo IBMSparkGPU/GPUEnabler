@@ -3,12 +3,12 @@
   <parent>
     <artifactId>gpu-enabler-parent</artifactId>
     <groupId>com.ibm</groupId>
-    <version>0.1.0</version>
+    <version>1.0.0</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.ibm</groupId>
   <artifactId>gpu-enabler_2.11</artifactId>
-  <version>0.1.0</version>
+  <version>1.0.0</version>
   <inceptionYear>2016</inceptionYear>
   <build>
     <sourceDirectory>src/main/scala</sourceDirectory>
@@ -30,6 +30,7 @@
               <includeArtifactIds>libJCudaDriver,libJCudaRuntime</includeArtifactIds>
               <outputDirectory>${project.build.directory}/lib/</outputDirectory>
               <stripVersion>true</stripVersion>
+              <overWrite>true</overWrite>
             </configuration>
           </execution>
           <execution>
@@ -42,6 +43,7 @@
               <includeArtifactIds>libJCudaDriver,libJCudaRuntime</includeArtifactIds>
               <outputDirectory>${project.build.directory}/lib/</outputDirectory>
               <stripVersion>true</stripVersion>
+              <overWrite>true</overWrite>
             </configuration>
           </execution>
           <execution>
@@ -73,7 +75,7 @@
           <junitxml>.</junitxml>
           <forkMode>once</forkMode>
           <filereports>WDF TestSuite.txt</filereports>
-          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms45g -Xmx60G -Xmn40g -Xgcthreads8 -Xdump:system:none -Xdump:heap:none -Xtrace:none -Xnoloa -Xdisableexplicitgc</argLine>
+          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms20g -Xmx25G -Xmn20G</argLine>
         </configuration>
       </plugin>
       <plugin>
@@ -232,26 +234,6 @@
   </pluginRepositories>
   <dependencies>
     <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-core_2.11</artifactId>
-      <version>2.0.0-SNAPSHOT</version>
-      <scope>compile</scope>
-      <exclusions>
-        <exclusion>
-          <artifactId>scala-library</artifactId>
-          <groupId>org.scala-lang</groupId>
-        </exclusion>
-        <exclusion>
-          <artifactId>scala-compiler</artifactId>
-          <groupId>org.scala-lang</groupId>
-        </exclusion>
-        <exclusion>
-          <artifactId>scalap</artifactId>
-          <groupId>org.scala-lang</groupId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <dependency>
       <groupId>org.scala-lang</groupId>
       <artifactId>scala-library</artifactId>
       <version>2.11.7</version>
@@ -275,6 +257,26 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <dependency>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-core_2.11</artifactId>
+      <version>1.6.1</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>scala-library</artifactId>
+          <groupId>org.scala-lang</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>scala-compiler</artifactId>
+          <groupId>org.scala-lang</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>scalap</artifactId>
+          <groupId>org.scala-lang</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
   </dependencies>
   <reporting>
     <plugins>
@@ -289,14 +291,9 @@
   </reporting>
   <properties>
     <CodeCacheSize>512m</CodeCacheSize>
-    <jcuda.version>0.7.0a</jcuda.version>
-    <scala.binary.version>2.11</scala.binary.version>
-    <libJ.version>linux-ppc_64</libJ.version>
-    <PermGen>64m</PermGen>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <libJ.version>linux-ppc_64</libJ.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <MaxPermGen>512m</MaxPermGen>
-    <scala.version>2.11.7</scala.version>
   </properties>
 </project>
 
