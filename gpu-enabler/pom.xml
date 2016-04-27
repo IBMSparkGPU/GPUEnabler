@@ -8,7 +8,7 @@
   </parent>
 
   <groupId>com.ibm</groupId>
-  <artifactId>gpu-enabler_2.11</artifactId>
+  <artifactId>gpu-enabler_2.10</artifactId>
   <version>1.0.0</version>
   <inceptionYear>2016</inceptionYear>
   <packaging>jar</packaging>
@@ -26,6 +26,88 @@
       <url>http://scala-tools.org/repo-releases</url>
     </repository>
   </repositories>
+
+    <!--Set of auto detected profiles for different OS family/architecture-->
+    <profiles>
+        <profile>
+            <id>windows-x86_64</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                    <arch>amd64</arch>
+                </os>
+            </activation>
+            <properties>
+                <jcuda.lib.ext>dll</jcuda.lib.ext>
+                <jcuda.lib.suffix>windows-x86_64</jcuda.lib.suffix>
+            </properties>
+        </profile>
+        <profile>
+            <id>windows-x86</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                    <arch>x86</arch>
+                </os>
+            </activation>
+            <properties>
+                <jcuda.lib.ext>dll</jcuda.lib.ext>
+                <jcuda.lib.suffix>windows-x86</jcuda.lib.suffix>            
+            </properties>
+        </profile>
+        <profile>
+            <id>unix-x86_64</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <arch>amd64</arch>
+                </os>
+            </activation>
+            <properties>
+                <jcuda.lib.ext>so</jcuda.lib.ext>
+                <jcuda.lib.suffix>linux-x86_64</jcuda.lib.suffix>            
+            </properties>
+        </profile>            
+        <profile>
+            <id>ppc64</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <arch>ppc64</arch>
+                </os>
+            </activation>
+            <properties>
+                <jcuda.lib.ext>so</jcuda.lib.ext>
+                <jcuda.lib.suffix>linux-ppc_64</jcuda.lib.suffix>              
+            </properties>
+        </profile>
+        <profile>
+            <id>ppc64le</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <arch>ppc64le</arch>
+                </os>
+            </activation>
+            <properties>
+                <jcuda.lib.ext>so</jcuda.lib.ext>
+                <jcuda.lib.suffix>linux-ppc_64</jcuda.lib.suffix>  
+            </properties>
+        </profile>
+        <profile>
+            <id>apple-x86_64</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                    <arch>x86_64</arch>
+                </os>
+            </activation>
+            <properties>
+                <jcuda.lib.ext>dylib</jcuda.lib.ext>
+                <jcuda.lib.suffix>apple-x86_64</jcuda.lib.suffix>              
+            </properties>
+        </profile>
+    </profiles>
 
   <pluginRepositories>
     <pluginRepository>
@@ -54,7 +136,7 @@
     </dependency>
     <dependency>
       <groupId>org.scalatest</groupId>
-      <artifactId>scalatest_2.11</artifactId>
+      <artifactId>scalatest_2.10</artifactId>
       <version>2.2.6</version>
       <scope>test</scope>
         <!-- exclusions>
@@ -149,13 +231,15 @@
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
                   <resource>lib/libJCudaDriver-linux-ppc_64.so</resource>
-                  <file>${project.build.directory}/lib/libJCudaDriver-linux-ppc_64.so</file>
+                  <file>${project.build.directory}/lib/libJCudaDriver-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
+                  <!--file>${project.build.directory}/lib/libJCudaDriver-linux-ppc_64.so</file -->
                   <!--resource>lib/libJCudaDriver-linux-ppc_64.so</resource>
                   <file>${project.build.directory}/lib/JCudaDriver-native-linux-ppc_64.so</file-->
                 </transformer>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
                   <resource>lib/libJCudaRuntime-linux-ppc_64.so</resource>
-                  <file>${project.build.directory}/lib/libJCudaRuntime-linux-ppc_64.so</file>
+                  <file>${project.build.directory}/lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
+                  <!--file>${project.build.directory}/lib/libJCudaRuntime-linux-ppc_64.so</file -->
                   <!--resource>lib/libJCudaRuntime-linux-ppc_64.so</resource>
                   <file>${project.build.directory}/lib/JCudaRuntime-native-linux-ppc_64.so</file -->
                 </transformer>

@@ -7,7 +7,7 @@
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.ibm</groupId>
-  <artifactId>gpu-enabler_2.11</artifactId>
+  <artifactId>gpu-enabler_2.10</artifactId>
   <version>1.0.0</version>
   <inceptionYear>2016</inceptionYear>
   <build>
@@ -75,7 +75,7 @@
           <junitxml>.</junitxml>
           <forkMode>once</forkMode>
           <filereports>WDF TestSuite.txt</filereports>
-          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms20g -Xmx25G -Xmn20G</argLine>
+          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms22g -Xmx25G -Xmn20G</argLine>
         </configuration>
       </plugin>
       <plugin>
@@ -94,11 +94,11 @@
           <transformers>
             <transformer>
               <resource>lib/libJCudaDriver-linux-ppc_64.so</resource>
-              <file>${project.build.directory}/lib/libJCudaDriver-linux-ppc_64.so</file>
+              <file>${project.build.directory}/lib/libJCudaDriver-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
             </transformer>
             <transformer>
               <resource>lib/libJCudaRuntime-linux-ppc_64.so</resource>
-              <file>${project.build.directory}/lib/libJCudaRuntime-linux-ppc_64.so</file>
+              <file>${project.build.directory}/lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
             </transformer>
           </transformers>
           <artifactSet>
@@ -218,6 +218,50 @@
       </plugin>
     </plugins>
   </build>
+  <profiles>
+    <profile>
+      <id>windows-x86_64</id>
+      <properties>
+        <jcuda.lib.suffix>windows-x86_64</jcuda.lib.suffix>
+        <jcuda.lib.ext>dll</jcuda.lib.ext>
+      </properties>
+    </profile>
+    <profile>
+      <id>windows-x86</id>
+      <properties>
+        <jcuda.lib.suffix>windows-x86</jcuda.lib.suffix>
+        <jcuda.lib.ext>dll</jcuda.lib.ext>
+      </properties>
+    </profile>
+    <profile>
+      <id>unix-x86_64</id>
+      <properties>
+        <jcuda.lib.suffix>linux-x86_64</jcuda.lib.suffix>
+        <jcuda.lib.ext>so</jcuda.lib.ext>
+      </properties>
+    </profile>
+    <profile>
+      <id>ppc64</id>
+      <properties>
+        <jcuda.lib.suffix>linux-ppc_64</jcuda.lib.suffix>
+        <jcuda.lib.ext>so</jcuda.lib.ext>
+      </properties>
+    </profile>
+    <profile>
+      <id>ppc64le</id>
+      <properties>
+        <jcuda.lib.suffix>linux-ppc_64</jcuda.lib.suffix>
+        <jcuda.lib.ext>so</jcuda.lib.ext>
+      </properties>
+    </profile>
+    <profile>
+      <id>apple-x86_64</id>
+      <properties>
+        <jcuda.lib.suffix>apple-x86_64</jcuda.lib.suffix>
+        <jcuda.lib.ext>dylib</jcuda.lib.ext>
+      </properties>
+    </profile>
+  </profiles>
   <repositories>
     <repository>
       <id>scala-tools.org</id>
@@ -236,7 +280,7 @@
     <dependency>
       <groupId>org.scala-lang</groupId>
       <artifactId>scala-library</artifactId>
-      <version>2.11.7</version>
+      <version>2.10.5</version>
       <scope>compile</scope>
     </dependency>
     <dependency>
@@ -247,19 +291,13 @@
     </dependency>
     <dependency>
       <groupId>org.scalatest</groupId>
-      <artifactId>scalatest_2.11</artifactId>
+      <artifactId>scalatest_2.10</artifactId>
       <version>2.2.6</version>
       <scope>test</scope>
-      <exclusions>
-        <exclusion>
-          <artifactId>scala-xml_2.11</artifactId>
-          <groupId>org.scala-lang.modules</groupId>
-        </exclusion>
-      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
-      <artifactId>spark-core_2.11</artifactId>
+      <artifactId>spark-core_2.10</artifactId>
       <version>1.6.1</version>
       <scope>compile</scope>
       <exclusions>

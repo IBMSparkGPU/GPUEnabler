@@ -11,12 +11,12 @@ The following capabilities are provided by this package,
 
 ## Requirements
 
-This package is compatible with Spark 1.5+ and scala 2.11
+This package is compatible with Spark 1.5+ and scala 2.10
 
 
 | Spark Version |  Scala Version | Compatible version of Spark GPU |
 | ------------- |-----------------|----------------------|
-| `1.5+`        | `2.11`          |`1.0.0`               |
+| `1.5+`        | `2.10`          |`1.0.0`               |
 
 ## Linking
 
@@ -25,7 +25,7 @@ You can link against this library (for Spark 1.5+) in your program at the follow
 Using SBT:
 
 ```
-libraryDependencies += "com.ibm" %% "gpu-enabler_2.11" % "1.0.0"
+libraryDependencies += "com.ibm" %% "gpu-enabler_2.10" % "1.0.0"
 ```
 
 Using Maven:
@@ -33,7 +33,7 @@ Using Maven:
 ```xml
 <dependency>
     <groupId>com.ibm</groupId>
-    <artifactId>gpu-enabler_2.11</artifactId>
+    <artifactId>gpu-enabler_2.10</artifactId>
     <version>1.0.0</version>
 </dependency>
 ```
@@ -42,7 +42,7 @@ This library can also be added to Spark jobs launched through `spark-shell` or `
 For example, to include it when starting the spark shell:
 
 ```
-$ bin/spark-shell --packages com.ibm:gpu-enabler_2.11:1.0.0
+$ bin/spark-shell --packages com.ibm:gpu-enabler_2.10:1.0.0
 ```
 
 Unlike using `--jars`, using `--packages` ensures that this library and its dependencies will be added to the classpath.
