@@ -11,13 +11,12 @@ The following capabilities are provided by this package,
 
 ## Requirements
 
-This documentation is for Spark 1.5+.
+This package is compatible with Spark 1.5+ and scala 2.11
 
-This library has only one version for Spark 1.5+:
 
-| Spark Version | Compatible version of Spark GPU |
-| ------------- |----------------------|
-| `1.5+`        | `1.0.0`              |
+| Spark Version |  Scala Version | Compatible version of Spark GPU |
+| ------------- |-----------------|----------------------|
+| `1.5+`        | `2.11`          |`1.0.0`               |
 
 ## Linking
 
@@ -49,13 +48,12 @@ $ bin/spark-shell --packages com.ibm:gpu-enabler_2.11:1.0.0
 Unlike using `--jars`, using `--packages` ensures that this library and its dependencies will be added to the classpath.
 The `--packages` argument can also be used with `bin/spark-submit`.
 
-This library is cross-published for Scala 2.11, so 2.11 users should replace 2.10 with 2.11 in the commands listed above.
 
 ## Support for GPU Enabler package
 
-* Support only x86_64 and ppc64le
+* Support x86_64 and ppc64le
 * Support OpenJDK and IBM JDK
-* Support only NVIDIA GPU with CUDA (we confirmed with CUDA 7.0)
+* Support NVIDIA GPU with CUDA (we confirmed with CUDA 7.0)
 * Support CUDA 7.0 and 7.5 (should work with CUDA 6.0 and 6.5)
 * Support scalar variables in primitive scalar types and primitive array in RDD
 
@@ -67,8 +65,8 @@ The package comes with a set of examples. They can be tried out as follows,
 `./bin/run-example GpuEnablerExample`
 
 The Nvidia kernel used in these sample programs is available for download
-[here](https://github.com/ibmsoe/GPUEnabler/blob/master/examples/src/main/resources/GpuEnablerExamples.ptx).
-The source for this kernel can be found [here](https://github.com/ibmsoe/GPUEnabler/blob/master/examples/src/main/resources/GpuEnablerExamples.cu).
+[here](https://github.com/IBMSparkGPU/GPUEnabler/blob/master/examples/src/main/resources/GpuEnablerExamples.ptx).
+The source for this kernel can be found [here](https://github.com/IBMSparkGPU/GPUEnabler/blob/master/examples/src/main/resources/GpuEnablerExamples.cu).
 
 
 ### Scala API
@@ -109,13 +107,7 @@ val output = sc.parallelize(1 to n, 1)
 
 * NVidia GPU with CUDA support of 7.0+.
 * Necessary CUDA drivers & Runtime drivers should be installed.
-* Mavenized jcuda should be available. If not, follow the steps,
-```
-$ git clone git@github.com:MysterionRise/mavenized-jcuda.git
-$ edit mavenized-jcuda/pom.xml
-  <jcuda.version>0.7.0a</jcuda.version>  // set CUDA version (e.g. 0.7.0a, 0.7.5, ...)
-$ cd mavenized-jcuda && mvn install && cd ..
-```
+
 This library is built with [Maven](https://maven.apache.org/guides/index.html).  
 To build a JAR file simply run the shell script after cloning this repository,
 `./compile.sh` from the project root.
