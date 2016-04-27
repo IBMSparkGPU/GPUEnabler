@@ -94,11 +94,11 @@
           <transformers>
             <transformer>
               <resource>lib/libJCudaDriver-linux-ppc_64.so</resource>
-              <file>${project.build.directory}/lib/libJCudaDriver-linux-ppc_64.so</file>
+              <file>${project.build.directory}/lib/libJCudaDriver-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
             </transformer>
             <transformer>
               <resource>lib/libJCudaRuntime-linux-ppc_64.so</resource>
-              <file>${project.build.directory}/lib/libJCudaRuntime-linux-ppc_64.so</file>
+              <file>${project.build.directory}/lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
             </transformer>
           </transformers>
           <artifactSet>
@@ -218,6 +218,50 @@
       </plugin>
     </plugins>
   </build>
+  <profiles>
+    <profile>
+      <id>windows-x86_64</id>
+      <properties>
+        <jcuda.lib.suffix>windows-x86_64</jcuda.lib.suffix>
+        <jcuda.lib.ext>dll</jcuda.lib.ext>
+      </properties>
+    </profile>
+    <profile>
+      <id>windows-x86</id>
+      <properties>
+        <jcuda.lib.suffix>windows-x86</jcuda.lib.suffix>
+        <jcuda.lib.ext>dll</jcuda.lib.ext>
+      </properties>
+    </profile>
+    <profile>
+      <id>unix-x86_64</id>
+      <properties>
+        <jcuda.lib.suffix>linux-x86_64</jcuda.lib.suffix>
+        <jcuda.lib.ext>so</jcuda.lib.ext>
+      </properties>
+    </profile>
+    <profile>
+      <id>ppc64</id>
+      <properties>
+        <jcuda.lib.suffix>linux-ppc_64</jcuda.lib.suffix>
+        <jcuda.lib.ext>so</jcuda.lib.ext>
+      </properties>
+    </profile>
+    <profile>
+      <id>ppc64le</id>
+      <properties>
+        <jcuda.lib.suffix>linux-ppc_64</jcuda.lib.suffix>
+        <jcuda.lib.ext>so</jcuda.lib.ext>
+      </properties>
+    </profile>
+    <profile>
+      <id>apple-x86_64</id>
+      <properties>
+        <jcuda.lib.suffix>apple-x86_64</jcuda.lib.suffix>
+        <jcuda.lib.ext>dylib</jcuda.lib.ext>
+      </properties>
+    </profile>
+  </profiles>
   <repositories>
     <repository>
       <id>scala-tools.org</id>
