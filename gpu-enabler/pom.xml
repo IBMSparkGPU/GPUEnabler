@@ -230,14 +230,14 @@
           <shadedArtifactAttached>false</shadedArtifactAttached>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>lib/libJCudaDriver-linux-ppc_64.so</resource>
+                  <resource>lib/libJCudaDriver-${jcuda.lib.suffix}.${jcuda.lib.ext}</resource>
                   <file>${project.build.directory}/lib/libJCudaDriver-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
                   <!--file>${project.build.directory}/lib/libJCudaDriver-linux-ppc_64.so</file -->
                   <!--resource>lib/libJCudaDriver-linux-ppc_64.so</resource>
                   <file>${project.build.directory}/lib/JCudaDriver-native-linux-ppc_64.so</file-->
                 </transformer>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>lib/libJCudaRuntime-linux-ppc_64.so</resource>
+                  <resource>lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</resource>
                   <file>${project.build.directory}/lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
                   <!--file>${project.build.directory}/lib/libJCudaRuntime-linux-ppc_64.so</file -->
                   <!--resource>lib/libJCudaRuntime-linux-ppc_64.so</resource>
