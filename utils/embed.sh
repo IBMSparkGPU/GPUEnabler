@@ -65,11 +65,11 @@ done
 shift $((OPTIND - 1))
 
 if [ ! -z $JARFILE ] ; then 
-    # addlib2jar $JARFILE libJCudaDriver
-    addlib2jar $JARFILE JCudaDriver-native 
+    addlib2jar $JARFILE libJCudaDriver
+    # addlib2jar $JARFILE JCudaDriver-native 
     if [ $? == 1 ]; then
-      # addlib2jar $JARFILE libJCudaRuntime
-      addlib2jar $JARFILE JCudaRuntime-native
+      addlib2jar $JARFILE libJCudaRuntime
+      # addlib2jar $JARFILE JCudaRuntime-native
       if [ $? == 1 ]; then
         exit 0
       fi
