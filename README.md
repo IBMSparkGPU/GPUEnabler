@@ -105,12 +105,20 @@ val output = sc.parallelize(1 to n, 1)
 
 ### Pre-requisites
 
-* NVidia GPU with CUDA support of 7.0+.
-* Necessary CUDA drivers & Runtime drivers should be installed.
+* NVidia GPU card with CUDA support of 7.0+.
+* Install CUDA drivers & Runtime drivers for your platform from [here](https://developer.nvidia.com/cuda-downloads).
 
 This library is built with [Maven](https://maven.apache.org/guides/index.html).  
-To build a JAR file simply run the shell script after cloning this repository,
-`./compile.sh` from the project root.
+
+To build a JAR file please follow these steps,
+* `git clone https://github.com/IBMSparkGPU/GPUEnabler.git`
+* `cd GPUEnabler`
+* `./compile.sh`
+
+Note:
+* If mvn is not available in $PATH, export MVN_CMD="\<path_to_mvn_binary>" 
+* If you want to use mvn from spark/build directory, add "--force" argument to `./compile.sh`
+
 
 ## Testing
 To run the tests, you should run `mvn test`.
