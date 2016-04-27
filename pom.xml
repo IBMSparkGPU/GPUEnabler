@@ -6,8 +6,8 @@
   <inceptionYear>2016</inceptionYear>
   <packaging>pom</packaging>
   <properties>
-    <scala.version>2.11.7</scala.version>
-    <scala.binary.version>2.11</scala.binary.version>
+    <scala.version>2.10.5</scala.version>
+    <scala.binary.version>2.10</scala.binary.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <PermGen>64m</PermGen>
@@ -63,7 +63,7 @@
   <dependencies>
     <dependency>
       <groupId>org.apache.spark</groupId>
-      <artifactId>spark-core_2.11</artifactId>
+      <artifactId>spark-core_2.10</artifactId>
       <version>1.6.1</version>
         <exclusions>
             <exclusion>
@@ -98,14 +98,14 @@
     </dependency>
     <dependency>
       <groupId>org.scalatest</groupId>
-      <artifactId>scalatest_2.11</artifactId>
+      <artifactId>scalatest_2.10</artifactId>
       <version>2.2.6</version>
       <scope>test</scope>
         <exclusions>
             <exclusion>
                 <!-- make sure wrong scala version is not pulled in -->
                 <groupId>org.scala-lang.modules</groupId>
-                <artifactId>scala-xml_2.11</artifactId>
+                <artifactId>scala-xml_2.10</artifactId>
             </exclusion>
         </exclusions>
 
