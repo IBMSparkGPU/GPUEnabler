@@ -29,6 +29,8 @@ import org.apache.spark.storage.{BlockId, RDDBlockId}
 
 import scala.language.existentials
 import scala.reflect.ClassTag
+import scala.collection.JavaConverters._
+import scala.language.implicitConversions
 
 /**
   * An abstract class to represent a ''User Defined function'' from a Native GPU program.
@@ -45,6 +47,40 @@ abstract class ExternalFunction extends Serializable {
 
   def outputColumnsOrder(): Seq[String]
 }
+
+/**
+  * Wrapper Java function for CUDAFunction
+  */
+class JavaCUDAFunction(val funcName: String,
+                       val _inputColumnsOrder: java.util.List[String] = null,
+                       val _outputColumnsOrder: java.util.List[String] = null,
+                       val resourceURL: URL,
+                       val constArgs: Seq[AnyVal] = Seq(),
+                       val stagesCount: Option[Long => Int] = None,
+                       val dimensions: Option[(Long, Int) => (Int, Int)] = None) {
+  val cf = new CUDAFunction(funcName, _inputColumnsOrder.asScala, _outputColumnsOrder.asScala,
+    resourceURL, constArgs, stagesCount, dimensions)
+
+  def this(funcName: String, _inputColumnsOrder: java.util.List[String],
+          _outputColumnsOrder: java.util.List[String],
+          resourceURL: URL) =
+    this(funcName, _inputColumnsOrder, _outputColumnsOrder,
+      resourceURL, Seq(), None, None)
+
+  def this(funcName: String, _inputColumnsOrder: java.util.List[String],
+           _outputColumnsOrder: java.util.List[String],
+           resourceURL: URL, constArgs: Seq[AnyVal]) =
+    this(funcName, _inputColumnsOrder, _outputColumnsOrder,
+    resourceURL, constArgs, None, None)
+
+  def this(funcName: String, _inputColumnsOrder: java.util.List[String],
+           _outputColumnsOrder: java.util.List[String],
+           resourceURL: URL, constArgs: Seq[AnyVal],
+            stagesCount: Option[Long => Int]) =
+    this(funcName, _inputColumnsOrder, _outputColumnsOrder,
+    resourceURL, Seq(), None, None)
+}
+
 
 /**
   * A class to represent a ''User Defined function'' from a Native GPU program.

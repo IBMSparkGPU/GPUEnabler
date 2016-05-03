@@ -93,11 +93,11 @@
           <shadedArtifactAttached>false</shadedArtifactAttached>
           <transformers>
             <transformer>
-              <resource>lib/libJCudaDriver-linux-ppc_64.so</resource>
+              <resource>lib/libJCudaDriver-${jcuda.lib.suffix}.${jcuda.lib.ext}</resource>
               <file>${project.build.directory}/lib/libJCudaDriver-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
             </transformer>
             <transformer>
-              <resource>lib/libJCudaRuntime-linux-ppc_64.so</resource>
+              <resource>lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</resource>
               <file>${project.build.directory}/lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
             </transformer>
           </transformers>
