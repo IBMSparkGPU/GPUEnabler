@@ -25,12 +25,13 @@ import com.ibm.gpuenabler.*;
 import org.apache.spark.api.java.function.Function;
 import scala.collection.mutable.ArraySeq;
 import scala.collection.Seq;
+import scala.Some;
+import scala.Tuple2;
 import scala.collection.mutable.StringBuilder;
 import scala.reflect.ClassTag;
 import java.util.*;
 
 public class GpuEnablerJavaExample {
-
     public static void main(String[] args) {
         String logFile = "YOUR_SPARK_HOME/README.md"; // Should be some file on your system
         String masterURL = "local[*]";
@@ -38,7 +39,8 @@ public class GpuEnablerJavaExample {
         if (args.length > 0)
           masterURL = args[0];
 
-        SparkConf conf = new SparkConf().setAppName("GpuEnablerJavaExample").setMaster(masterURL);
+        SparkConf conf = new SparkConf().setAppName("GpuEnablerJavaExample");
+        conf.setMaster(masterURL);
         JavaSparkContext sc = new JavaSparkContext(conf);
 
         int n = 10;
@@ -51,7 +53,6 @@ public class GpuEnablerJavaExample {
 
         ClassTag<Integer> tag = scala.reflect.ClassTag$.MODULE$.apply(Integer.TYPE);
 
-        // JavaCUDARDD<Integer> ci = new JavaCUDARDD(inputData, tag);
         JavaCUDARDD<Integer> jCRDD = new JavaCUDARDD(inputData.rdd(), tag);
 
         GpuEnablerJavaExample gp = new GpuEnablerJavaExample();
@@ -61,20 +62,51 @@ public class GpuEnablerJavaExample {
         StringBuilder sb = new StringBuilder(1, "this");
         inputseq.addString(sb);
 
-        List<String> li = new ArrayList<String>(1);
-        li.add("this");
-
         JavaCUDAFunction mapFunction = new JavaCUDAFunction(
                 "multiplyBy2",
-                li,
-                li,
+                Arrays.asList("this"),
+                Arrays.asList("this"),
                 ptxURL);
 
+        /**
+          * Function to compute the GPU Grid Size & Block Size
+          * for each Stage specified by the user program
+          */ 
+        Function2<Long, Integer, Tuple2<Integer, Integer>> dimensions = 
+          new Function2<Long, Integer, Tuple2<Integer, Integer>>() {
+            public Tuple2<Integer, Integer> call(Long size, Integer stage) throws Exception {
+                Tuple2 ret = new Tuple2<Integer, Integer>(1, 1) ;
+                switch (stage) {
+                    case 0: ret =  new Tuple2<Integer, Integer>(64, 256);
+                        break;
+                    case 1 : ret =  new Tuple2<Integer, Integer>(1, 1);
+                        break;
+                }
+                return ret;
+            }
+        };
+
+
+        /**
+          * Function to compute the number of stages required to perform
+          * the required task; It depends mainly on the total number of
+          * elements to process. In this case, we return 2 to denote 2
+          * stages are required
+          */
+        Function<Long, Integer> stageCount = new Function<Long, Integer>() {
+            public Integer call(Long size) throws Exception {
+                return 2;
+            }
+        };
+        
         JavaCUDAFunction reduceFunction = new JavaCUDAFunction(
-                "sum1",
-                li,
-                li,
-                ptxURL);
+                "sum",
+                Arrays.asList("this"),
+                Arrays.asList("this"),
+                ptxURL,
+                new ArraySeq(0),
+                new Some(stageCount),
+                new Some(dimensions));
 
         Integer output = jCRDD.mapExtFunc((new Function<Integer, Integer>() {
             public Integer call(Integer x) { return (2 * x); }
