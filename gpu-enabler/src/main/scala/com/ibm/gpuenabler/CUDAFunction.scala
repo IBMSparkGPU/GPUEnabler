@@ -50,7 +50,52 @@ abstract class ExternalFunction extends Serializable {
 }
 
 /**
-  * Wrapper Java function for CUDAFunction
+  *   * A class to represent a ''User Defined function'' from a Native GPU program.
+  *   * Wrapper Java function for CUDAFunction scala function
+  *
+  * Specify the `funcName`, `_inputColumnsOrder`, `_outputColumnsOrder`,
+  * and `resourceURL` when creating a new `CUDAFunction`,
+  * then pass this object as an input argument to `mapExtFunc` or
+  *  `reduceExtFunc` as follows,
+  *
+  * {{{
+  *
+  * JavaCUDAFunction mapFunction = new JavaCUDAFunction(
+  *              "multiplyBy2",
+  *              Arrays.asList("this"),
+  *              Arrays.asList("this"),
+  *              ptxURL);
+  *
+  *   JavaRDD<Integer> inputData = sc.parallelize(range).cache();
+  *   ClassTag<Integer> tag = scala.reflect.ClassTag$.MODULE$.apply(Integer.TYPE);
+  *   JavaCUDARDD<Integer> ci = new JavaCUDARDD(inputData.rdd(), tag);
+  *   
+  *   JavaCUDARDD<Integer> output = ci.mapExtFunc((new Function<Integer, Integer>() {
+  *          public Integer call(Integer x) {
+  *              return (2 * x);
+  *          }
+  *    }), mapFunction, tag)
+  *
+  * }}}
+  *
+  * @constructor The "compute" method is initialized so that when invoked it will
+  *             load and launch the GPU kernel with the required set of parameters
+  *             based on the input & output column order.
+  * @param funcName Name of the Native code's function
+  * @param _inputColumnsOrder List of input columns name mapping to corresponding
+  *                           class members of the input RDD.
+  * @param _outputColumnsOrder List of output columns name mapping to corresponding
+  *                            class members of the result RDD.
+  * @param resourceURL  Points to the resource URL where the GPU kernel is present
+  * @param constArgs  Sequence of constant argument that need to passed in to a
+  *                   GPU Kernel
+  * @param stagesCount  Provide a function which is used to determine the number
+  *                     of stages required to run this GPU kernel in spark based on the
+  *                     number of partition items to process. Default function return "1".
+  * @param dimensions Provide a function which is used to determine the GPU compute
+  *                   dimensions for each stage. Default function will determined the
+  *                   dimensions based on the number of partition items but for a single
+  *                   stage.
   */
 class JavaCUDAFunction(val funcName: String,
                        val _inputColumnsOrder: java.util.List[String] = null,

@@ -12,10 +12,25 @@
   <inceptionYear>2016</inceptionYear>
   <build>
     <sourceDirectory>src/main/scala</sourceDirectory>
-    <testSourceDirectory>src/test/scala</testSourceDirectory>
+    <testSourceDirectory>src/test/</testSourceDirectory>
     <outputDirectory>target/scala-${scala.binary.version}/classes</outputDirectory>
     <testOutputDirectory>target/scala-${scala.binary.version}/test-classes</testOutputDirectory>
     <plugins>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.19.1</version>
+        <configuration>
+          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms8G -Xmx10G -Xmn7G</argLine>
+        </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-surefire-report-plugin</artifactId>
+        <version>2.17</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>2.5.1</version>
+      </plugin>
       <plugin>
         <artifactId>maven-dependency-plugin</artifactId>
         <version>2.10</version>
@@ -174,13 +189,7 @@
             <jvmArg>-XX:MaxPermSize=${MaxPermGen}</jvmArg>
             <jvmArg>-XX:ReservedCodeCacheSize=${CodeCacheSize}</jvmArg>
           </jvmArgs>
-          <javacArgs>
-            <javacArg>-source</javacArg>
-            <javacArg>${java.version}</javacArg>
-            <javacArg>-target</javacArg>
-            <javacArg>${java.version}</javacArg>
-            <javacArg>-Xlint:all,-serial,-path</javacArg>
-          </javacArgs>
+          <javacArgs />
         </configuration>
       </plugin>
       <plugin>
@@ -296,6 +305,30 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.11</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>hamcrest-core</artifactId>
+          <groupId>org.hamcrest</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>com.novocode</groupId>
+      <artifactId>junit-interface</artifactId>
+      <version>0.11</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>test-interface</artifactId>
+          <groupId>org.scala-sbt</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-core_2.10</artifactId>
       <version>1.6.1</version>
@@ -329,9 +362,14 @@
   </reporting>
   <properties>
     <CodeCacheSize>512m</CodeCacheSize>
-    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <project.build.outputEncoding>${project.custom.encoding}</project.build.outputEncoding>
+    <project.custom.encoding>UTF-8</project.custom.encoding>
+    <maven.compiler.target>${project.custom.java.version}</maven.compiler.target>
     <libJ.version>linux-ppc_64</libJ.version>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.custom.java.version>1.6</project.custom.java.version>
+    <maven.compiler.source>${project.custom.java.version}</maven.compiler.source>
   </properties>
 </project>
 

@@ -16,7 +16,12 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <CodeCacheSize>512m</CodeCacheSize>
-<libJ.version>linux-ppc_64</libJ.version>
+    <libJ.version>linux-ppc_64</libJ.version>
+    <project.custom.encoding>UTF-8</project.custom.encoding>
+    <project.custom.java.version>1.6</project.custom.java.version>
+    <maven.compiler.source>${project.custom.java.version}</maven.compiler.source>
+    <maven.compiler.target>${project.custom.java.version}</maven.compiler.target>
+    <project.build.outputEncoding>${project.custom.encoding}</project.build.outputEncoding>
   </properties>
 
   <repositories>
@@ -147,14 +152,44 @@
         </exclusions -->
 
     </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.11</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.novocode</groupId>
+      <artifactId>junit-interface</artifactId>
+      <version>0.11</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
     <sourceDirectory>src/main/scala</sourceDirectory>
-    <testSourceDirectory>src/test/scala</testSourceDirectory>
+    <testSourceDirectory>src/test/</testSourceDirectory>
     <outputDirectory>target/scala-${scala.binary.version}/classes</outputDirectory>
     <testOutputDirectory>target/scala-${scala.binary.version}/test-classes</testOutputDirectory>
     <plugins>
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-surefire-plugin</artifactId>
+      <version>2.19.1</version>
+      <configuration>
+          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms8G -Xmx10G -Xmn7G </argLine>
+      </configuration>
+    </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-report-plugin</artifactId>
+        <version>2.17</version>
+      </plugin>
+      <plugin>
+         <groupId>org.apache.maven.plugins</groupId>
+         <artifactId>maven-compiler-plugin</artifactId>
+         <version>2.5.1</version>
+      </plugin>
       <!-- This plugin dumps the test classpath into a file -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -327,11 +362,11 @@
               <jvmArg>-XX:ReservedCodeCacheSize=${CodeCacheSize}</jvmArg>
             </jvmArgs>
             <javacArgs>
-              <javacArg>-source</javacArg>
+              <!--javacArg>-source</javacArg>
               <javacArg>${java.version}</javacArg>
               <javacArg>-target</javacArg>
               <javacArg>${java.version}</javacArg>
-              <javacArg>-Xlint:all,-serial,-path</javacArg>
+              <javacArg>-Xlint:all,-serial,-path</javacArg -->
             </javacArgs>
           </configuration>
         </plugin>

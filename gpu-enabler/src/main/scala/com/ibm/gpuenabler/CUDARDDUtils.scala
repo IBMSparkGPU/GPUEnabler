@@ -151,14 +151,20 @@ private[gpuenabler] class ConvertGPUPartitionsRDD[T: ClassTag](
 
 /**
   * Wrapper Function for Java APIs. It exposes 4 APIs
-  * mapExtFunc  
-  * reduceExtFunc
-  * cacheGpu
-  * unCacheGpu
-  *   
+  * mapExtFunc, reduceExtFunc, cacheGpu, unCacheGpu
+  *
+  * @param rdd Name of the Native code's function
+  * classTag need to be passed in to a scala API from java program only
+  * as a last argument.
+  *
   * {{{
-  * import com.ibm.gpuenabler.JavaCUDARDD;  
-  * }}} 
+  * import com.ibm.gpuenabler.JavaCUDARDD;
+  *
+  *      JavaRDD<Integer> inputData = sc.parallelize(range);
+  *      ClassTag<Integer> tag = scala.reflect.ClassTag$.MODULE$.apply(Integer.TYPE);
+  *      JavaCUDARDD<Integer> ci = new JavaCUDARDD(inputData.rdd(), tag);
+  * }}}
+  *
   */
 class JavaCUDARDD[T: ClassTag](override val rdd: RDD[T])
   extends JavaRDD[T](rdd) {

@@ -61,10 +61,6 @@ public class GpuEnablerJavaExample {
         GpuEnablerJavaExample gp = new GpuEnablerJavaExample();
         URL ptxURL = gp.getClass().getResource("/GpuEnablerExamples.ptx");
 
-        Seq<String> inputseq = new ArraySeq<String>(1);
-        StringBuilder sb = new StringBuilder(1, "this");
-        inputseq.addString(sb);
-
         JavaCUDAFunction mapFunction = new JavaCUDAFunction(
                 "multiplyBy2",
                 Arrays.asList("this"),
