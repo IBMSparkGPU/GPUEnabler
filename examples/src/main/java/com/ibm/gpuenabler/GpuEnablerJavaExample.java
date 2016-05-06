@@ -41,15 +41,18 @@ public class GpuEnablerJavaExample {
 
         SparkConf conf = new SparkConf().setAppName("GpuEnablerJavaExample");
         conf.setMaster(masterURL);
+        conf.set("spark.driver.extraJavaOptions", "-Xmn8g -Xgcthreads8 -Xdump:system:none -Xdump:heap:none -Xtrace:none -Xnoloa -Xdisableexplicitgc");
+        conf.set("spark.driver.memory", "10g");
+
         JavaSparkContext sc = new JavaSparkContext(conf);
 
-        int n = 10;
+        int n = 1000;
         List<Integer> range = new ArrayList<Integer>(n);
         for (int i = 1; i <= n; i++) {
             range.add(i);
         }
 
-        JavaRDD<Integer> inputData = sc.parallelize(range).cache();
+        JavaRDD<Integer> inputData = sc.parallelize(range, 10).cache();
 
         ClassTag<Integer> tag = scala.reflect.ClassTag$.MODULE$.apply(Integer.TYPE);
 

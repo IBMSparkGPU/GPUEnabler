@@ -119,6 +119,7 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
     if (!gpuCache) {
       // Make sure the CPU ptrs are populated before GPU memory is freed up.
       copyGpuToCpu
+      if (_listKernParmDesc == null) return
       _listKernParmDesc = _listKernParmDesc.map(kpd => {
         if (kpd.devPtr != null) {
           GPUSparkEnv.get.cudaManager.freeGPUMemory(kpd.devPtr)
@@ -139,6 +140,7 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
   // This function is used to copy the CPU memory to GPU for
   // an existing Hybrid Iterator
   def copyCpuToGpu: Unit = {
+    if (_listKernParmDesc == null) return
     _listKernParmDesc = _listKernParmDesc.map(kpd => {
       if (kpd.devPtr == null) {
         val devPtr = GPUSparkEnv.get.cudaManager.allocateGPUMemory(kpd.sz)
@@ -155,6 +157,7 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
   // an existing Hybrid Iterator
   def copyGpuToCpu: Unit = {
     // Ensure main memory is allocated to hold the GPU data
+    if (_listKernParmDesc == null) return
     _listKernParmDesc = (_listKernParmDesc, colSchema.orderedColumns(columnsOrder)).
         zipped.map((kpd, col) => {
       if (kpd.cpuArr == null && kpd.cpuPtr == null && kpd.devPtr != null) {
@@ -236,7 +239,7 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
 
   def listKernParmDesc: Seq[KernelParameterDesc] = _listKernParmDesc
 
-  private var _listKernParmDesc = if (inputArr != null) {
+  private var _listKernParmDesc = if (inputArr != null && inputArr.length > 0) {
     // initFromInputIterator
     colSchema.orderedColumns(columnsOrder).map { col =>
       cachedGPUPointers.getOrElseUpdate(blockId.get + col.prettyAccessor, {
@@ -326,7 +329,6 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
             }
           }
         }
-        // println("colDataSize : " + colDataSize)
         val devPtr = GPUSparkEnv.get.cudaManager.allocateGPUMemory(colDataSize)
         cuMemcpyHtoDAsync(devPtr, hPtr, colDataSize, cuStream)
         val gPtr = Pointer.to(devPtr)
@@ -335,7 +337,7 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
         new KernelParameterDesc(null, hPtr, devPtr, gPtr, colDataSize, symbol)
       })
     }
-  } else { // initEmptyArrays - mostly used by output argument list
+  } else if (numentries != 0) { // initEmptyArrays - mostly used by output argument list
     // set the number of entries to numentries as its initialized to '0'
     _numElements = numentries
     val colOrderSizes = colSchema.orderedColumns(columnsOrder) zip _outputArraySizes
@@ -384,6 +386,8 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
         new KernelParameterDesc(null, null, devPtr, gPtr, colDataSize, symbol)
       })
     }
+  } else {
+    null
   }
 
   // Use reflection to instantiate object without calling constructor

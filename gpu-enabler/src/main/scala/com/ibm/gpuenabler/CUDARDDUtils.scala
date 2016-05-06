@@ -88,6 +88,10 @@ private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
     // Use the block ID of this particular (rdd, partition)
     val blockId = RDDBlockId(this.id, split.index)
 
+    // Handle empty partitions.
+    if (firstParent[T].iterator(split, context).length <= 0) 
+      return new Array[U](0).toIterator
+
     val inputHyIter = firstParent[T].iterator(split, context) match {
       case hyIter: HybridIterator[T] => {
        hyIter
@@ -297,16 +301,21 @@ object CUDARDDImplicits {
       val outputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
 
       val reducePartition: (TaskContext, Iterator[T]) => Option[T] =
-        (ctx: TaskContext, data: Iterator[T]) => data match {
-          case col: HybridIterator[T] =>
-            if (col.numElements != 0) {
-              val colIter = extfunc.compute[T, T](col, Seq(inputColSchema, outputColSchema),
-                Some(1), outputArraySizes,
-                inputFreeVariables, None).asInstanceOf[HybridIterator[T]]
-              Some(colIter.next)
-            } else {
-              None
+        (ctx: TaskContext, data: Iterator[T]) => {
+          // Handle partitions with no data
+          if (data.length > 0) {
+            data match {
+              case col: HybridIterator[T] =>
+                if (col.numElements != 0) {
+                  val colIter = extfunc.compute[T, T](col, Seq(inputColSchema, outputColSchema),
+                    Some(1), outputArraySizes,
+                    inputFreeVariables, None).asInstanceOf[HybridIterator[T]]
+                  Some(colIter.next)
+                } else {
+                  None
+                }
             }
+          } else None
         }
 
       var jobResult: Option[T] = None
