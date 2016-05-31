@@ -23,6 +23,8 @@ import org.apache.spark.{Partition, TaskContext, _}
 
 import scala.language.implicitConversions
 import scala.reflect.ClassTag
+import org.apache.spark.api.java.JavaRDD
+import org.apache.spark.api.java.function.{Function => JFunction, Function2 => JFunction2, _}
 
 private[gpuenabler] case class Key(val rdd : RDD[Int], key : RDDBlockId)
 
@@ -34,7 +36,6 @@ private[gpuenabler] object GPUKeyManager {
 
   def getGPUMemoryManagerKey(sc : SparkContext) = {
     gpuMemoryManagerKey.getOrElse {
-      println("Creating new gpuMemoryManagerKey")
       gpuMemoryManagerKey = Some {
         val x = sc.parallelize(1 to 1);
         Key(x, RDDBlockId(x.id, 0)) }
@@ -45,7 +46,6 @@ private[gpuenabler] object GPUKeyManager {
   def getCudaManagerKey(sc : SparkContext) = {
     cudaManagerKey.getOrElse {
       cudaManagerKey = Some {
-        println("Creating new CUDAManagerKey")
         val x = sc.parallelize(1 to 1);
         Key(x, RDDBlockId(x.id, 0))
       }
@@ -87,6 +87,10 @@ private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
   override def compute(split: Partition, context: TaskContext): Iterator[U] = {
     // Use the block ID of this particular (rdd, partition)
     val blockId = RDDBlockId(this.id, split.index)
+
+    // Handle empty partitions.
+    if (firstParent[T].iterator(split, context).length <= 0) 
+      return new Array[U](0).toIterator
 
     val inputHyIter = firstParent[T].iterator(split, context) match {
       case hyIter: HybridIterator[T] => {
@@ -145,6 +149,71 @@ private[gpuenabler] class ConvertGPUPartitionsRDD[T: ClassTag](
   }
 }
 
+/**
+  * Wrapper Function for Java APIs. It exposes 4 APIs
+  * mapExtFunc, reduceExtFunc, cacheGpu, unCacheGpu
+  *
+  * @param rdd Name of the Native code's function
+  * classTag need to be passed in to a scala API from java program only
+  * as a last argument.
+  *
+  * {{{
+  * import com.ibm.gpuenabler.JavaCUDARDD;
+  *
+  *      JavaRDD<Integer> inputData = sc.parallelize(range);
+  *      ClassTag<Integer> tag = scala.reflect.ClassTag$.MODULE$.apply(Integer.TYPE);
+  *      JavaCUDARDD<Integer> ci = new JavaCUDARDD(inputData.rdd(), tag);
+  * }}}
+  *
+  */
+class JavaCUDARDD[T: ClassTag](override val rdd: RDD[T])
+  extends JavaRDD[T](rdd) {
+
+  import CUDARDDImplicits._
+
+  override def wrapRDD(rdd: RDD[T]): JavaCUDARDD[T] = JavaCUDARDD.fromRDD(rdd)
+
+  implicit def toScalaFunction[T, R](fun: JFunction[T, R]): T => R = x => fun.call(x)
+
+  implicit def toScalaFunction[T, R](fun: JFunction2[T, T, R]): (T, T) => R = (x, y) => fun.call(x, y)
+
+  def mapExtFunc[U: ClassTag](f: JFunction[T, U],
+                                  extfunc: JavaCUDAFunction): JavaCUDARDD[U] =
+  {
+    def fn: (T) => U = (x: T) => f.call(x)
+    new JavaCUDARDD[U](rdd.mapExtFunc[U](fn, extfunc.cf,
+      null, null))
+  }
+
+  def mapExtFunc[U: ClassTag](fn: JFunction[T, U], extfunc: JavaCUDAFunction,
+                                  outputArraySizes: Seq[Int] = null,
+                                  inputFreeVariables: Seq[Any] = null): JavaCUDARDD[U] =
+  {    
+    new JavaCUDARDD[U](rdd.mapExtFunc(fn, extfunc.cf,
+      outputArraySizes, inputFreeVariables))
+  }
+
+  def reduceExtFunc(fn: JFunction2[T, T, T], extfunc: JavaCUDAFunction,
+                        outputArraySizes: Seq[Int] = null,
+                        inputFreeVariables: Seq[Any] = null): T = {    
+    rdd.reduceExtFunc(fn,extfunc.cf, outputArraySizes, inputFreeVariables)
+  }
+
+  def reduceExtFunc(fn: JFunction2[T, T, T], extfunc: JavaCUDAFunction): T = {    
+    rdd.reduceExtFunc(fn,extfunc.cf, null, null)
+  }
+
+  def cacheGpu() = wrapRDD(rdd.cacheGpu())
+
+  def unCacheGpu() = wrapRDD(rdd.unCacheGpu())
+}
+
+object JavaCUDARDD {
+  implicit def fromRDD[T: ClassTag](rdd: RDD[T]): JavaCUDARDD[T] =
+    new JavaCUDARDD[T](rdd)
+
+  implicit def toRDD[T](rdd: JavaCUDARDD[T]): RDD[T] = rdd.rdd
+}
 
 /**
   * Adds additional functionality to existing RDD's which are
@@ -153,8 +222,8 @@ private[gpuenabler] class ConvertGPUPartitionsRDD[T: ClassTag](
   * the following packages,
   *
   * {{{
-  * import org.apache.spark.cuda._
-  * import org.apache.spark.cuda.CUDARDDImplicits._
+  * import com.ibm.gpuenabler.cuda._
+  * import com.ibm.gpuenabler.CUDARDDImplicits._
   * }}}
   *
   */
@@ -238,16 +307,21 @@ object CUDARDDImplicits {
       val outputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
 
       val reducePartition: (TaskContext, Iterator[T]) => Option[T] =
-        (ctx: TaskContext, data: Iterator[T]) => data match {
-          case col: HybridIterator[T] =>
-            if (col.numElements != 0) {
-              val colIter = extfunc.compute[T, T](col, Seq(inputColSchema, outputColSchema),
-                Some(1), outputArraySizes,
-                inputFreeVariables, None).asInstanceOf[HybridIterator[T]]
-              Some(colIter.next)
-            } else {
-              None
+        (ctx: TaskContext, data: Iterator[T]) => {
+          // Handle partitions with no data
+          if (data.length > 0) {
+            data match {
+              case col: HybridIterator[T] =>
+                if (col.numElements != 0) {
+                  val colIter = extfunc.compute[T, T](col, Seq(inputColSchema, outputColSchema),
+                    Some(1), outputArraySizes,
+                    inputFreeVariables, None).asInstanceOf[HybridIterator[T]]
+                  Some(colIter.next)
+                } else {
+                  None
+                }
             }
+          } else None
         }
 
       var jobResult: Option[T] = None

@@ -12,10 +12,25 @@
   <inceptionYear>2016</inceptionYear>
   <build>
     <sourceDirectory>src/main/scala</sourceDirectory>
-    <testSourceDirectory>src/test/scala</testSourceDirectory>
+    <testSourceDirectory>src/test/</testSourceDirectory>
     <outputDirectory>target/scala-${scala.binary.version}/classes</outputDirectory>
     <testOutputDirectory>target/scala-${scala.binary.version}/test-classes</testOutputDirectory>
     <plugins>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.19.1</version>
+        <configuration>
+          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms8G -Xmx10G -Xmn7G</argLine>
+        </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-surefire-report-plugin</artifactId>
+        <version>2.17</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>2.5.1</version>
+      </plugin>
       <plugin>
         <artifactId>maven-dependency-plugin</artifactId>
         <version>2.10</version>
@@ -93,11 +108,11 @@
           <shadedArtifactAttached>false</shadedArtifactAttached>
           <transformers>
             <transformer>
-              <resource>lib/libJCudaDriver-linux-ppc_64.so</resource>
+              <resource>lib/libJCudaDriver-${jcuda.lib.suffix}.${jcuda.lib.ext}</resource>
               <file>${project.build.directory}/lib/libJCudaDriver-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
             </transformer>
             <transformer>
-              <resource>lib/libJCudaRuntime-linux-ppc_64.so</resource>
+              <resource>lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</resource>
               <file>${project.build.directory}/lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
             </transformer>
           </transformers>
@@ -168,19 +183,13 @@
             <arg>-feature</arg>
           </args>
           <jvmArgs>
-            <jvmArg>-Xms1024m</jvmArg>
-            <jvmArg>-Xmx1024m</jvmArg>
+            <jvmArg>-Xms${HeapSize}</jvmArg>
+            <jvmArg>-Xmx${MaxHeapSize}</jvmArg>
             <jvmArg>-XX:PermSize=${PermGen}</jvmArg>
             <jvmArg>-XX:MaxPermSize=${MaxPermGen}</jvmArg>
             <jvmArg>-XX:ReservedCodeCacheSize=${CodeCacheSize}</jvmArg>
           </jvmArgs>
-          <javacArgs>
-            <javacArg>-source</javacArg>
-            <javacArg>${java.version}</javacArg>
-            <javacArg>-target</javacArg>
-            <javacArg>${java.version}</javacArg>
-            <javacArg>-Xlint:all,-serial,-path</javacArg>
-          </javacArgs>
+          <javacArgs />
         </configuration>
       </plugin>
       <plugin>
@@ -290,10 +299,28 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.scalatest</groupId>
-      <artifactId>scalatest_2.10</artifactId>
-      <version>2.2.6</version>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.11</version>
       <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>hamcrest-core</artifactId>
+          <groupId>org.hamcrest</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>com.novocode</groupId>
+      <artifactId>junit-interface</artifactId>
+      <version>0.11</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>test-interface</artifactId>
+          <groupId>org.scala-sbt</groupId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
@@ -315,12 +342,25 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <dependency>
+      <groupId>org.scalatest</groupId>
+      <artifactId>scalatest_2.10</artifactId>
+      <version>2.2.5</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>scala-xml_2.10</artifactId>
+          <groupId>org.scala-lang.modules</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
   </dependencies>
   <reporting>
     <plugins>
       <plugin>
         <groupId>org.scala-tools</groupId>
         <artifactId>maven-scala-plugin</artifactId>
+        <version>2.15.2</version>
         <configuration>
           <scalaVersion>${scala.version}</scalaVersion>
         </configuration>
@@ -329,9 +369,14 @@
   </reporting>
   <properties>
     <CodeCacheSize>512m</CodeCacheSize>
-    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <project.build.outputEncoding>${project.custom.encoding}</project.build.outputEncoding>
+    <project.custom.encoding>UTF-8</project.custom.encoding>
+    <maven.compiler.target>${project.custom.java.version}</maven.compiler.target>
     <libJ.version>linux-ppc_64</libJ.version>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.custom.java.version>1.6</project.custom.java.version>
+    <maven.compiler.source>${project.custom.java.version}</maven.compiler.source>
   </properties>
 </project>
 

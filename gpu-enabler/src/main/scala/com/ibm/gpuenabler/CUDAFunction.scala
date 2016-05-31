@@ -29,6 +29,9 @@ import org.apache.spark.storage.{BlockId, RDDBlockId}
 
 import scala.language.existentials
 import scala.reflect.ClassTag
+import scala.collection.JavaConverters._
+import scala.language.implicitConversions
+import org.apache.spark.api.java.function.{Function => JFunction, Function2 => JFunction2, _}
 
 /**
   * An abstract class to represent a ''User Defined function'' from a Native GPU program.
@@ -45,6 +48,112 @@ abstract class ExternalFunction extends Serializable {
 
   def outputColumnsOrder(): Seq[String]
 }
+
+/**
+  *   * A class to represent a ''User Defined function'' from a Native GPU program.
+  *   * Wrapper Java function for CUDAFunction scala function
+  *
+  * Specify the `funcName`, `_inputColumnsOrder`, `_outputColumnsOrder`,
+  * and `resourceURL` when creating a new `CUDAFunction`,
+  * then pass this object as an input argument to `mapExtFunc` or
+  *  `reduceExtFunc` as follows,
+  *
+  * {{{
+  *
+  * JavaCUDAFunction mapFunction = new JavaCUDAFunction(
+  *              "multiplyBy2",
+  *              Arrays.asList("this"),
+  *              Arrays.asList("this"),
+  *              ptxURL);
+  *
+  *   JavaRDD<Integer> inputData = sc.parallelize(range).cache();
+  *   ClassTag<Integer> tag = scala.reflect.ClassTag$.MODULE$.apply(Integer.TYPE);
+  *   JavaCUDARDD<Integer> ci = new JavaCUDARDD(inputData.rdd(), tag);
+  *   
+  *   JavaCUDARDD<Integer> output = ci.mapExtFunc((new Function<Integer, Integer>() {
+  *          public Integer call(Integer x) {
+  *              return (2 * x);
+  *          }
+  *    }), mapFunction, tag)
+  *
+  * }}}
+  *
+  * @constructor The "compute" method is initialized so that when invoked it will
+  *             load and launch the GPU kernel with the required set of parameters
+  *             based on the input & output column order.
+  * @param funcName Name of the Native code's function
+  * @param _inputColumnsOrder List of input columns name mapping to corresponding
+  *                           class members of the input RDD.
+  * @param _outputColumnsOrder List of output columns name mapping to corresponding
+  *                            class members of the result RDD.
+  * @param resourceURL  Points to the resource URL where the GPU kernel is present
+  * @param constArgs  Sequence of constant argument that need to passed in to a
+  *                   GPU Kernel
+  * @param stagesCount  Provide a function which is used to determine the number
+  *                     of stages required to run this GPU kernel in spark based on the
+  *                     number of partition items to process. Default function return "1".
+  * @param dimensions Provide a function which is used to determine the GPU compute
+  *                   dimensions for each stage. Default function will determined the
+  *                   dimensions based on the number of partition items but for a single
+  *                   stage.
+  */
+class JavaCUDAFunction(val funcName: String,
+                       val _inputColumnsOrder: java.util.List[String] = null,
+                       val _outputColumnsOrder: java.util.List[String] = null,
+                       val resourceURL: URL,
+                       val constArgs: Seq[AnyVal] = Seq(),
+                       val stagesCount: Option[JFunction[Long, Integer]] = null,
+                       val dimensions: Option[JFunction2[Long, Integer, Tuple2[Integer,Integer]]] = null) 
+    extends Serializable {
+
+  implicit def toScalaTuples(x: Tuple2[Integer,Integer]) : Tuple2[Int,Int] = (x._1, x._2)
+
+  implicit def toScalaFunction(fun: JFunction[Long, Integer]):
+    Option[Long => Int] = if (fun != null)
+      Some(x => fun.call(x))
+    else None
+
+  implicit def toScalaFunction(fun: JFunction2[Long, Integer, Tuple2[Integer, Integer]]):
+    Option[(Long, Int) => Tuple2[Int, Int]] =  if (fun != null)
+      Some((x, y) => fun.call(x, y))
+    else None
+
+  val stagesCountFn: Option[Long => Int]  = stagesCount match {
+    case Some(fun: JFunction[Long, Integer]) => fun
+    case _ => None
+  }
+
+  val dimensionsFn: Option[(Long, Int) => Tuple2[Int, Int]] = dimensions match {
+    case Some(fun: JFunction2[Long, Integer, Tuple2[Integer, Integer]] ) => fun
+    case _ => None
+  }
+
+  val cf = new CUDAFunction(funcName, _inputColumnsOrder.asScala, _outputColumnsOrder.asScala,
+    resourceURL, constArgs, stagesCountFn, dimensionsFn)
+  
+  /* 
+   * 3 variants - call invocations
+   */
+  def this(funcName: String, _inputColumnsOrder: java.util.List[String],
+          _outputColumnsOrder: java.util.List[String],
+          resourceURL: URL) =
+    this(funcName, _inputColumnsOrder, _outputColumnsOrder,
+      resourceURL, Seq(), None, None)
+
+  def this(funcName: String, _inputColumnsOrder: java.util.List[String],
+           _outputColumnsOrder: java.util.List[String],
+           resourceURL: URL, constArgs: Seq[AnyVal]) =
+    this(funcName, _inputColumnsOrder, _outputColumnsOrder,
+    resourceURL, constArgs, None, None)
+
+  def this(funcName: String, _inputColumnsOrder: java.util.List[String],
+           _outputColumnsOrder: java.util.List[String],
+           resourceURL: URL, constArgs: Seq[AnyVal],
+            stagesCount: Option[JFunction[Long, Integer]]) =
+    this(funcName, _inputColumnsOrder, _outputColumnsOrder,
+    resourceURL, Seq(), stagesCount, None)
+}
+
 
 /**
   * A class to represent a ''User Defined function'' from a Native GPU program.
@@ -95,6 +204,10 @@ class CUDAFunction(
                     val dimensions: Option[(Long, Int) => (Int, Int)] = None
                    )
   extends ExternalFunction {
+  implicit def toScalaFunction(fun: JFunction[Long, Int]): Long => Int = x => fun.call(x)
+
+  implicit def toScalaFunction(fun: JFunction2[Long, Int, Tuple2[Int,Int]]): (Long, Int) => 
+    Tuple2[Int,Int] = (x, y) => fun.call(x, y)
 
   def inputColumnsOrder: Seq[String] = _inputColumnsOrder
   def outputColumnsOrder: Seq[String] = _outputColumnsOrder

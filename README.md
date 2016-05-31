@@ -73,8 +73,8 @@ The source for this kernel can be found [here](https://github.com/IBMSparkGPU/GP
 
 ```scala
 // import needed for the Spark GPU method to be added
-import org.apache.spark.cuda._
-import org.apache.spark.cuda.CUDARDDImplicits._
+import com.ibm.gpuenabler.CUDARDDImplicits._
+import com.ibm.gpuenabler.CUDAFunction
 
 // Load a kernel function from the GPU kernel binary 
 val ptxURL = SparkGPULR.getClass.getResource("/GpuEnablerExamples.ptx")
@@ -91,13 +91,54 @@ val reduceFunction = new CUDAFunction(
         Array("this"),          // Output arguments
         ptxURL)
         
-// 1. "convert" the row based formating to columnar format
-// 2. Apply a transformation ( multiple all the values of the RDD by 2)
-// 3. Trigger a reduction action (sum up all the values and return the result)
+// 1. Apply a transformation ( multiple all the values of the RDD by 2)
+//    (Note: Conversion of row based formatting to columnar format which is understandable
+//           by GPU is done internally )
+// 2. Trigger a reduction action (sum up all the values and return the result)
 val output = sc.parallelize(1 to n, 1)
-        .convert(ColumnFormat)                      
         .mapExtFunc((x: Int) => 2 * x, mapFunction)  
         .reduceExtFunc((x: Int, y: Int) => x + y, reduceFunction)  
+```
+
+### Java API
+
+```java
+// import needed for the Spark GPU method to be added
+import com.ibm.gpuenabler.*;
+
+// Load a kernel function from the GPU kernel binary 
+URL ptxURL = gp.getClass().getResource("/GpuEnablerExamples.ptx");
+
+// Register the cuda functions along with input & output arguments order
+JavaCUDAFunction mapFunction = new JavaCUDAFunction(
+                "multiplyBy2",
+                Arrays.asList("this"),
+                Arrays.asList("this"),
+                ptxURL);
+
+        
+JavaCUDAFunction reduceFunction = new JavaCUDAFunction(
+                "sum",
+                Arrays.asList("this"),
+                Arrays.asList("this"),
+                ptxURL);
+    
+// Create a Java Cuda RDD 
+JavaRDD<Integer> inputData = sc.parallelize(range, 10).cache();
+ClassTag<Integer> tag = scala.reflect.ClassTag$.MODULE$.apply(Integer.TYPE);
+JavaCUDARDD<Integer> jCRDD = new JavaCUDARDD(inputData.rdd(), tag);
+
+// 1. Apply a transformation ( multiple all the values of the RDD by 2)
+//    (Note: Conversion of row based formatting to columnar format which is understandable
+//           by GPU is done internally )
+// 2. Trigger a reduction action (sum up all the values and return the result)
+Integer output = jCRDD.mapExtFunc((new Function<Integer, Integer>() {
+            public Integer call(Integer x) { return (2 * x); }
+        }), mapFunction, tag).cacheGpu().reduceExtFunc((new Function2<Integer, Integer, Integer>() {
+            public Integer call(Integer integer, Integer integer2) {
+                return integer + integer2;
+            }
+        }), reduceFunction);
 ```
 
 

@@ -35,3 +35,17 @@ __global__ void sum(int *size, int *input, int *output, int *stage, int *totalSt
     }
 }
 
+
+extern "C"
+// test reduce kernel that sums elements
+__global__ void sum1(int *size, int *input, int *output) {
+    const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
+    if (ix == 0) {
+        int result = 0;
+        for (long i = ix; i < *size; i++) {
+            result += input[i];
+        }
+        output[0] = result;
+    }
+}
+
