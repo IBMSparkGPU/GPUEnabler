@@ -140,19 +140,6 @@
         <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.scalatest</groupId>
-      <artifactId>scalatest_2.10</artifactId>
-      <version>2.2.6</version>
-      <scope>test</scope>
-        <!-- exclusions>
-            <exclusion>
-                <groupId>org.scala-lang.modules</groupId>
-                <artifactId>scala-xml_2.11</artifactId>
-            </exclusion>
-        </exclusions -->
-
-    </dependency>
-    <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
       <version>4.11</version>
@@ -355,8 +342,8 @@
               <arg>-feature</arg>
             </args>
             <jvmArgs>
-              <jvmArg>-Xms1024m</jvmArg>
-              <jvmArg>-Xmx1024m</jvmArg>
+              <jvmArg>-Xms${HeapSize}</jvmArg>
+              <jvmArg>-Xmx${MaxHeapSize}</jvmArg>
               <jvmArg>-XX:PermSize=${PermGen}</jvmArg>
               <jvmArg>-XX:MaxPermSize=${MaxPermGen}</jvmArg>
               <jvmArg>-XX:ReservedCodeCacheSize=${CodeCacheSize}</jvmArg>
@@ -411,6 +398,7 @@
       <plugin>
         <groupId>org.scala-tools</groupId>
         <artifactId>maven-scala-plugin</artifactId>
+        <version>2.15.2</version>
         <configuration>
           <scalaVersion>${scala.version}</scalaVersion>
         </configuration>
