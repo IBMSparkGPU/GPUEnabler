@@ -24,6 +24,7 @@ import jcuda.Pointer
 import jcuda.driver.JCudaDriver._
 import jcuda.driver.{CUdeviceptr, CUfunction, CUstream}
 import jcuda.runtime.{JCuda, cudaStream_t}
+import org.apache.commons.io.IOUtils
 import org.apache.spark._
 import org.apache.spark.storage.{BlockId, RDDBlockId}
 
@@ -214,6 +215,14 @@ class CUDAFunction(
 
   var _blockId: Option[BlockId] = Some(RDDBlockId(0, 0))
 
+  //touch GPUSparkEnv for endpoint init
+  GPUSparkEnv.get
+  val ptxmodule=(resourceURL.toString,{
+    val inputStream = resourceURL.openStream()
+    val moduleBinaryData = IOUtils.toByteArray(inputStream)
+    inputStream.close()
+    new String(moduleBinaryData.map(_.toChar))})
+
   // asynchronous Launch of kernel
   private def launchKernel(function: CUfunction, numElements: Int,
                            kernelParameters: Pointer,
@@ -316,7 +325,7 @@ class CUDAFunction(
                                         outputArraySizes: Seq[Int] = null,
                                         inputFreeVariables: Seq[Any] = null,
                                         blockId: Option[BlockId] = None): Iterator[U] = {
-    val module = GPUSparkEnv.get.cudaManager.cachedLoadModule(Left(resourceURL))
+    val module = GPUSparkEnv.get.cudaManager.cachedLoadModule(Right(ptxmodule))
     val function = new CUfunction
     cuModuleGetFunction(function, module, funcName)
 
