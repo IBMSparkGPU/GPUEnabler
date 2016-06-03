@@ -199,7 +199,7 @@ class CUDAFunction(
                     val funcName: String,
                     val _inputColumnsOrder: Seq[String] = null,
                     val _outputColumnsOrder: Seq[String] = null,
-                    val resourceURL: URL,
+                    val resource: Any,
                     val constArgs: Seq[AnyVal] = Seq(),
                     val stagesCount: Option[Long => Int] = None,
                     val dimensions: Option[(Long, Int) => (Int, Int)] = None
@@ -217,11 +217,17 @@ class CUDAFunction(
 
   //touch GPUSparkEnv for endpoint init
   GPUSparkEnv.get
-  val ptxmodule=(resourceURL.toString,{
-    val inputStream = resourceURL.openStream()
-    val moduleBinaryData = IOUtils.toByteArray(inputStream)
-    inputStream.close()
-    new String(moduleBinaryData.map(_.toChar))})
+  val ptxmodule = resource match {
+    case resourceURL: URL =>
+      (resourceURL.toString, {
+        val inputStream = resourceURL.openStream()
+        val moduleBinaryData = IOUtils.toByteArray(inputStream)
+        inputStream.close()
+        new String(moduleBinaryData.map(_.toChar))
+      })
+    case (name: String, ptx: String) => (name, ptx)
+    case _ => throw new UnsupportedOperationException("this type is not supported for module")
+  }
 
   // asynchronous Launch of kernel
   private def launchKernel(function: CUfunction, numElements: Int,
