@@ -281,6 +281,19 @@ object CUDARDDImplicits {
     }
 
     /**
+     * Return a new RDD by applying a function to all elements of this RDD.
+     */
+    def mapGpu[U: ClassTag](f: T => U): RDD[U] = {
+      import org.apache.spark.gpuenabler.CUDAUtils
+      val cleanF = CUDAUtils.cleanFn(sc, f) // sc.clean(f)
+      val cudaFunc = CUDACodeGenerator.generateForMap[U, T](cleanF).getOrElse(
+        throw new UnsupportedOperationException("Cannot generate GPU code")
+      )
+      new MapGPUPartitionsRDD[U, T](rdd, (context, pid, iter) => iter.map(cleanF), cudaFunc)
+    }
+
+
+    /**
       * Trigger a reduce action on all elements of this RDD.
       *
       * @param f Specify the lambda to apply to all elements of this RDD
@@ -298,7 +311,6 @@ object CUDARDDImplicits {
     def reduceExtFunc(f: (T, T) => T, extfunc: ExternalFunction,
                       outputArraySizes: Seq[Int] = null,
                       inputFreeVariables: Seq[Any] = null): T = {
-      import com.ibm.gpuenabler.HybridIterator
       import org.apache.spark.gpuenabler.CUDAUtils
 
       val cleanF = CUDAUtils.cleanFn(sc, f) // sc.clean(f)
@@ -316,6 +328,52 @@ object CUDARDDImplicits {
                   val colIter = extfunc.compute[T, T](col, Seq(inputColSchema, outputColSchema),
                     Some(1), outputArraySizes,
                     inputFreeVariables, None).asInstanceOf[HybridIterator[T]]
+                  Some(colIter.next)
+                } else {
+                  None
+                }
+            }
+          } else None
+        }
+
+      var jobResult: Option[T] = None
+      val mergeResult = (index: Int, taskResult: Option[T]) => {
+        if (taskResult.isDefined) {
+          jobResult = jobResult match {
+            case Some(value) => Some(f(value, taskResult.get))
+            case None => taskResult
+          }
+        }
+      }
+      sc.runJob(rdd, reducePartition, 0 until rdd.partitions.length, mergeResult)
+      jobResult.getOrElse(throw new UnsupportedOperationException("empty collection"))
+    }
+
+    /**
+     * Reduces the elements of this RDD using the specified commutative and
+     * associative binary operator.
+     */
+    def reduceGpu(f: (T, T) => T): T = {
+      import org.apache.spark.gpuenabler.CUDAUtils
+
+      val cleanF = CUDAUtils.cleanFn(sc, f) // sc.clean(f)
+
+      val cudaFunc = CUDACodeGenerator.generateForReduce[T](cleanF).getOrElse(
+        throw new UnsupportedOperationException("Cannot generate GPU code")
+      )
+
+      val inputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
+      val outputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
+
+      val reducePartition: (TaskContext, Iterator[T]) => Option[T] =
+        (ctx: TaskContext, data: Iterator[T]) => {
+          // Handle partitions with no data
+          if (data.length > 0) {
+            data match {
+              case col: HybridIterator[T] =>
+                if (col.numElements != 0) {
+                  val colIter = cudaFunc.compute[T, T](col, Seq(inputColSchema, outputColSchema),
+                    Some(1), null, null, None).asInstanceOf[HybridIterator[T]]
                   Some(colIter.next)
                 } else {
                   None

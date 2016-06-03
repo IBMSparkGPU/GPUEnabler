@@ -45,6 +45,9 @@ private[gpuenabler] class GPUSparkEnv() {
                       new GPUMemoryManagerMasterEndPoint(rpcEnv)),
                     isDriver,
                     isLocal)
+  val isGPUEnabled = (cudaManager != null)
+  val isGPUCodeGenEnabled =
+    isGPUEnabled && SparkEnv.get.conf.getBoolean("spark.gpu.codegen", false)
 }
 
 private[gpuenabler] object GPUSparkEnv extends _Logging {
