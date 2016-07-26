@@ -320,8 +320,6 @@ object CUDARDDImplicits {
 
       val reducePartition: (TaskContext, Iterator[T]) => Option[T] =
         (ctx: TaskContext, data: Iterator[T]) => {
-          // Handle partitions with no data
-          if (data.length > 0) {
             data match {
               case col: HybridIterator[T] =>
                 if (col.numElements != 0) {
@@ -332,8 +330,9 @@ object CUDARDDImplicits {
                 } else {
                   None
                 }
+              // Handle partitions with no data
+              case _ => None
             }
-          } else None
         }
 
       var jobResult: Option[T] = None

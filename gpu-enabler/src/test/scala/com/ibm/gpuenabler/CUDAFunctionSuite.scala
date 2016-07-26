@@ -477,6 +477,34 @@ class CUDAFunctionSuite extends FunSuite {
     }
   }
 
+  test("Run map on rdds - multiple partition - test empty partition", GPUTest) {
+
+    val sc = new SparkContext("local[*]", "test", conf)
+    val manager =  GPUSparkEnv.get.cudaManager
+    if (manager != null) {
+      val ptxURL = getClass.getResource("/testCUDAKernels.ptx")
+      val mapFunction = new CUDAFunction(
+        "multiplyBy2",
+        Array("this"),
+        Array("this"),
+        ptxURL)
+
+      val n = 5
+
+      try {
+        val output = sc.parallelize(1 to n, 10)
+          .mapExtFunc((x: Int) => 2 * x, mapFunction)
+          .collect()
+        assert(output.sameElements((1 to n).map(_ * 2)))
+      } finally {
+        sc.stop
+      }
+    } else {
+      info("No CUDA devices, so skipping the test.")
+    }
+  }
+
+
   test("Run reduce on rdds - single partition", GPUTest) {
     
     val sc = new SparkContext("local[*]", "test", conf)
