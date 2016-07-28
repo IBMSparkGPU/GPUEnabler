@@ -50,7 +50,7 @@ private[gpuenabler] class GPUSparkEnv() {
     isGPUEnabled && SparkEnv.get.conf.getBoolean("spark.gpu.codegen", false)
 }
 
-private[gpuenabler] object GPUSparkEnv extends _Logging {
+private[gpuenabler] object GPUSparkEnv {
   private var env : GPUSparkEnv = _
   private var oldSparkEnv : SparkEnv = _
 

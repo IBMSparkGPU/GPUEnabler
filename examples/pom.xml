@@ -54,7 +54,7 @@
   <dependencies>
     <dependency>
       <groupId>com.ibm</groupId>
-      <artifactId>gpu-enabler_2.10</artifactId>
+      <artifactId>gpu-enabler_2.11</artifactId>
       <version>1.0.0</version>
     </dependency>
     <!--dependency>
