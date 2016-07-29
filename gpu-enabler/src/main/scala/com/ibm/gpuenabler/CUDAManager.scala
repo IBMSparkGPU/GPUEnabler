@@ -21,7 +21,7 @@ import java.net.URL
 
 import jcuda.Pointer
 import jcuda.driver.JCudaDriver._
-import jcuda.driver.{CUdeviceptr, CUmodule, JCudaDriver}
+import jcuda.driver._
 import jcuda.runtime.JCuda
 import org.apache.commons.io.IOUtils
 import org.apache.spark.SparkException
@@ -41,6 +41,11 @@ private[gpuenabler] class CUDAManager {
   try {
     JCudaDriver.setExceptionsEnabled(true)
     JCudaDriver.cuInit(0)
+    // TODO enable multiGPU support
+    val device: CUdevice = new CUdevice
+    cuDeviceGet(device, 0)
+    val context: CUcontext = new CUcontext
+    cuCtxCreate(context, 0, device)
   } catch {
     case ex: UnsatisfiedLinkError =>
       throw new SparkException("Could not initialize CUDA, because native jCuda libraries were " +
@@ -51,6 +56,11 @@ private[gpuenabler] class CUDAManager {
 
     case ex: Throwable =>
       throw new SparkException("Could not initialize CUDA because of unknown reason", ex)
+  }
+
+  def getModule(fname : String ) : CUmodule = {
+    val ptxURL = getClass.getResource(fname)
+    cachedLoadModule(Left(ptxURL));
   }
 
   // private[gpuenabler] def cachedLoadModule(resource: Either[URL, (String, String)]): CUmodule = {
@@ -78,22 +88,18 @@ private[gpuenabler] class CUDAManager {
       // TODO support loading multple ptxs
       //   http://stackoverflow.com/questions/32535828/jit-in-jcuda-loading-multiple-ptx-modules
       CUDAManagerCachedModule.getInstance.getOrElseUpdate((key, devIx(0)), {
-    // println(" MODULE LOAD ")
         // TODO maybe unload the module if it won't be needed later
-        var moduleBinaryData: Array[Byte] = null
+        val module: CUmodule = new CUmodule
         if (resourceURL != null) {
-          val inputStream = resourceURL.openStream()
-          moduleBinaryData = IOUtils.toByteArray(inputStream)
-          inputStream.close()
+          cuModuleLoad(module, resourceURL.getFile);
         } else {
-          moduleBinaryData = ptxString.getBytes()
+          val moduleBinaryData = ptxString.getBytes()
+          val moduleBinaryData0 = new Array[Byte](moduleBinaryData.length + 1)
+          System.arraycopy(moduleBinaryData, 0, moduleBinaryData0, 0, moduleBinaryData.length)
+          moduleBinaryData0(moduleBinaryData.length) = 0
+          val module = new CUmodule
+          JCudaDriver.cuModuleLoadData(module, moduleBinaryData0)
         }
-
-        val moduleBinaryData0 = new Array[Byte](moduleBinaryData.length + 1)
-        System.arraycopy(moduleBinaryData, 0, moduleBinaryData0, 0, moduleBinaryData.length)
-        moduleBinaryData0(moduleBinaryData.length) = 0
-        val module = new CUmodule
-        JCudaDriver.cuModuleLoadData(module, moduleBinaryData0)
         module
       })
     }

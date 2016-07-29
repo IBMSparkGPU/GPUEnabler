@@ -27,11 +27,10 @@ import org.apache.spark.sql.types.StructType
 /**
   * Interface for generated predicate
   */
-abstract class JCUDAIter {
-  def init(index : Int, inp: Iterator[InternalRow])
-  def hasNext: Boolean
-  def next: InternalRow
-  def initSchema(s : StructType)
+abstract class JCUDAInterface {
+  def hasNext() : Boolean
+  def next() : InternalRow
+  def init(itr : java.util.Iterator[InternalRow])
 }
 
 /**
@@ -39,14 +38,13 @@ abstract class JCUDAIter {
   */
 object JCUDACodeGen extends Logging {
 
-  def generate(inputSchema: StructType): JCUDAIter = {
+  def generate(inputSchema: StructType): JCUDAInterface = {
     val ctx = newCodeGenContext()
 
     val codeBody =
       s"""
       import org.apache.spark.sql.catalyst.InternalRow;
       import org.apache.spark.sql.types.StructType;
-      import ${classOf[JCUDAIter].getName};
 
       class myIterator extends JCUDAIter {
 
@@ -78,22 +76,21 @@ object JCUDACodeGen extends Logging {
     val code = CodeFormatter.stripOverlappingComments(
       new CodeAndComment(codeBody, ctx.getPlaceHolderToComments()))
 
-    val p = CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[JCUDAIter]
-    p.initSchema(inputSchema)
+    val p = CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[JCUDAInterface]
     return p;
   }
 
-  def generateFromFile(inputSchema: StructType): JCUDAIter = {
+  def generateFromFile(inputSchema: StructType): JCUDAInterface = {
     val ctx = newCodeGenContext()
 
-    val c = scala.io.Source.fromFile("src/main/scala/org/apache/spark/sql/JCUDAJava.java").getLines()
+    val c = scala.io.Source.fromFile("/Users/madhusudanan/spark-projects/GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/JCUDAVecAdd.java").getLines()
+    //val c = scala.io.Source.fromFile("src/main/scala/org/apache/spark/sql/gpuenabler/JCUDAVecAdd.java").getLines()
     val codeBody = c.filter(x=> (!(x.contains("REMOVE")))).map(x => x+"\n").mkString
 
     val code = CodeFormatter.stripOverlappingComments(
       new CodeAndComment(codeBody, ctx.getPlaceHolderToComments()))
 
-    val p = CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[JCUDAIter]
-    p.initSchema(inputSchema)
+    val p = CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[JCUDAInterface]
     return p;
   }
 

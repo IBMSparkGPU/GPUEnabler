@@ -39,6 +39,7 @@ fi
 
 echo "Executing : mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs=\"$EXAMPLE_MASTER\""
 
+echo $EXAMPLES_DIR
 cd $EXAMPLES_DIR
 
 mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs="$EXAMPLE_MASTER"

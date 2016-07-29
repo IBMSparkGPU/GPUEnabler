@@ -23,13 +23,11 @@ object DSDebug {
 
     val DF = ss.read.json("examples/src/main/resources/data.json")
     val ds1 = DF.as[data]
+    ds1.show();
 
-    val ds2 = ds1.mapGPU("Nothing")
-
-    val ds = ds1
+    ds1.mapGPU("Nothing").show()
 
     // ds.queryExecution.debug.codegen()
-     ds.show()
 /*
     ds.printSchema()
     ds.explain()

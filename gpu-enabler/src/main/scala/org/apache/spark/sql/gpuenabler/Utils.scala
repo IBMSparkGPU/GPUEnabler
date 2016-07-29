@@ -1,5 +1,6 @@
 package org.apache.spark.sql.gpuenabler;
 
+
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen._
@@ -10,6 +11,7 @@ import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql._
+import scala.collection.JavaConverters._
 /**
   * Created by madhusudanan on 26/07/16.
   */
@@ -32,9 +34,11 @@ case class MAPGPUExec(inp: String, child: SparkPlan)
       val buffer = JCUDACodeGen.generateFromFile(child.schema)
       // val buffer = JCUDACodeGen.generate(child.schema)
       // val buffer = new JCUDAJava().generateIt(child.schema)
-      buffer.init(index, iter)
+      buffer.init(iter.asJava)
       new Iterator[InternalRow] {
-        override def hasNext: Boolean = buffer.hasNext
+        override def hasNext: Boolean = {
+          buffer.hasNext
+        }
         override def next: InternalRow = buffer.next
       }
     }
