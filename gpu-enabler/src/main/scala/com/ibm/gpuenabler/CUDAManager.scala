@@ -91,6 +91,7 @@ private[gpuenabler] class CUDAManager {
         // TODO maybe unload the module if it won't be needed later
         val module: CUmodule = new CUmodule
         if (resourceURL != null) {
+          println("FIle "+ resourceURL.getFile)
           cuModuleLoad(module, resourceURL.getFile);
         } else {
           val moduleBinaryData = ptxString.getBytes()

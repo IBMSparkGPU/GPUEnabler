@@ -11,6 +11,8 @@ import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 import org.apache.spark.sql.gpuenabler.JCUDAInterface;
 import org.apache.spark.unsafe.types.UTF8String;
 
+import java.nio.CharBuffer;
+import java.nio.IntBuffer;
 import java.util.Iterator;
 
 import static jcuda.driver.JCudaDriver.*;
@@ -34,61 +36,72 @@ public class JCUDAVecAdd { // REMOVE
 
     class myJCUDAInterface extends JCUDAInterface {
 
+        //Static variables
         private Object[] references;
         private UnsafeRow result;
         private org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder holder;
         private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter rowWriter;
         private Iterator<InternalRow> inpitr = null;
-        private long input0[] = new long[10];
-        private long input1[] = new long[10];
-        private UTF8String input2[] = new UTF8String[10];
-        private long input3[] = new long[10];
         private boolean processed = false;
-        private int idx = 0, totRows = 0;
+        private int idx = 0;
+        private int numElements = 0;
+
+        //host input variables
+        private long hostinput0[] = new long[10];
+        private long hostinput1[] = new long[10];
+        private UTF8String hostinput2[] = new UTF8String[10];
+
+        //host output variables
+        private long hostoutput0[] = new long[10];
 
         public myJCUDAInterface() {
-            result = new UnsafeRow(4);
+            result = new UnsafeRow(2);
             this.holder = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(result, 32);
-            this.rowWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, 4);
+            this.rowWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, 2);
         }
 
         public void init(Iterator<InternalRow> inp) {
             inpitr = inp;
         }
 
-        public void process() {
-            processed = true;
+        private void extractInput() {
             for(int i=0; inpitr.hasNext();i++) {
                 InternalRow r = (InternalRow) inpitr.next();
-                input0[i] = r.getLong(0);
-                input1[i] = r.getLong(1);
-                input2[i] = r.getUTF8String(2).clone();
-                input3[i] = input0[i] + input1[i];
-                System.out.println("Process " + i + input3[i]);
-                totRows++;
+                hostinput0[i] = r.getLong(0);
+                hostinput1[i] = r.getLong(1);
+                hostinput2[i] = r.getUTF8String(2).clone();
+                numElements++;
             }
+        }
+
+        private void processCPU() {
+            for(int i=0;i<numElements;i++)
+                hostoutput0[i] = hostinput0[i] + hostinput1[i];
+
+        }
+
+        public void execute() {
+            processed = true;
+            //extractInput();
+            processGPU();
         }
 
         public InternalRow next() {
             holder.reset();
             rowWriter.zeroOutNullBytes();
-            System.out.println("next " + idx + input3[idx]);
-            rowWriter.write(0,input0[idx]);
-            rowWriter.write(1,input1[idx]);
-            rowWriter.write(2,input2[idx]);
-            rowWriter.write(3,input3[idx]);
-            System.out.println("next " + idx + input2[idx]);
-            idx++;
+            rowWriter.write(0,hostinput2[idx]);
+            rowWriter.write(1,hostoutput0[idx]);
             result.setTotalSize(holder.totalSize());
+            idx++;
             return (InternalRow) result;
         }
 
         public boolean hasNext() {
-            if(!processed) process();
-            return idx < totRows;
+            if(!processed) execute();
+            return idx < numElements;
         }
 
-        public InternalRow[] processGPU(InternalRow inp[]) {
+        public void processGPU() {
 
             String ptxFileName = "/JCudaVectorAddKernel.ptx";
 
@@ -96,41 +109,41 @@ public class JCUDAVecAdd { // REMOVE
 
             // Obtain a function pointer to the "add" function.
             CUfunction function = new CUfunction();
-            cuModuleGetFunction(function, module, "add");
+            cuModuleGetFunction(function, module, "mul");
 
-            int numElements = 100000;
 
-            // Allocate and fill the host input data
-            float hostInputA[] = new float[numElements];
-            float hostInputB[] = new float[numElements];
-            for (int i = 0; i < numElements; i++) {
-                hostInputA[i] = (float) i;
-                hostInputB[i] = (float) i;
+            // Allocate and fill the host hostinput data
+            for(int i=0; inpitr.hasNext();i++) {
+                InternalRow r = (InternalRow) inpitr.next();
+                hostinput0[i] = r.getLong(0);
+                hostinput1[i] = r.getLong(1);
+                hostinput2[i] = r.getUTF8String(2).clone();
+                numElements++;
             }
 
-            // Allocate the device input data, and copy the
-            // host input data to the device
-            CUdeviceptr deviceInputA = new CUdeviceptr();
-            cuMemAlloc(deviceInputA, numElements * Sizeof.FLOAT);
-            cuMemcpyHtoD(deviceInputA, Pointer.to(hostInputA),
-                    numElements * Sizeof.FLOAT);
+            // Allocate the device hostinput data, and copy the
+            // host hostinput data to the device
+            CUdeviceptr deviceinput0 = new CUdeviceptr();
+            cuMemAlloc(deviceinput0, numElements * Sizeof.LONG);
+            cuMemcpyHtoD(deviceinput0, Pointer.to(hostinput0),
+                    numElements * Sizeof.LONG);
 
-            CUdeviceptr deviceInputB = new CUdeviceptr();
-            cuMemAlloc(deviceInputB, numElements * Sizeof.FLOAT);
-            cuMemcpyHtoD(deviceInputB, Pointer.to(hostInputB),
-                    numElements * Sizeof.FLOAT);
+            CUdeviceptr deviceinput1 = new CUdeviceptr();
+            cuMemAlloc(deviceinput1, numElements * Sizeof.LONG);
+            cuMemcpyHtoD(deviceinput1, Pointer.to(hostinput1),
+                    numElements * Sizeof.LONG);
 
             // Allocate device output memory
-            CUdeviceptr deviceOutput = new CUdeviceptr();
-            cuMemAlloc(deviceOutput, numElements * Sizeof.FLOAT);
+            CUdeviceptr deviceoutput0 = new CUdeviceptr();
+            cuMemAlloc(deviceoutput0, numElements * Sizeof.LONG);
 
             // Set up the kernel parameters: A pointer to an array
             // of pointers which point to the actual values.
             Pointer kernelParameters = Pointer.to(
                     Pointer.to(new int[]{numElements}),
-                    Pointer.to(deviceInputA),
-                    Pointer.to(deviceInputB),
-                    Pointer.to(deviceOutput)
+                    Pointer.to(deviceinput0),
+                    Pointer.to(deviceinput1),
+                    Pointer.to(deviceoutput0)
             );
 
             // Call the kernel function.
@@ -146,28 +159,13 @@ public class JCUDAVecAdd { // REMOVE
 
             // Allocate host output memory and copy the device output
             // to the host.
-            float hostOutput[] = new float[numElements];
-            cuMemcpyDtoH(Pointer.to(hostOutput), deviceOutput,
-                    numElements * Sizeof.FLOAT);
+            cuMemcpyDtoH(Pointer.to(hostoutput0), deviceoutput0,
+                    numElements * Sizeof.LONG);
 
-            // Verify the result
-            boolean passed = true;
-            for (int i = 0; i < numElements; i++) {
-                float expected = i + i;
-                if (Math.abs(hostOutput[i] - expected) > 1e-5) {
-                    System.out.println(
-                            "At index " + i + " found " + hostOutput[i] +
-                                    " but expected " + expected);
-                    passed = false;
-                    break;
-                }
-            }
-            System.out.println("Test " + (passed ? "PASSED" : "FAILED"));
             // Clean up.
-            cuMemFree(deviceInputA);
-            cuMemFree(deviceInputB);
-            cuMemFree(deviceOutput);
-            return inp;
+            cuMemFree(deviceinput0);
+            cuMemFree(deviceinput1);
+            cuMemFree(deviceoutput0);
         }
     }
 

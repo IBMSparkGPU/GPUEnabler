@@ -83,8 +83,8 @@ object JCUDACodeGen extends Logging {
   def generateFromFile(inputSchema: StructType): JCUDAInterface = {
     val ctx = newCodeGenContext()
 
-    val c = scala.io.Source.fromFile("/Users/madhusudanan/spark-projects/GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/JCUDAVecAdd.java").getLines()
-    //val c = scala.io.Source.fromFile("src/main/scala/org/apache/spark/sql/gpuenabler/JCUDAVecAdd.java").getLines()
+    //val c = scala.io.Source.fromFile("/Users/madhusudanan/spark-projects/GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/JCUDAVecAdd.java").getLines()
+    val c = scala.io.Source.fromFile("/home/kmadhu/GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/JCUDAVecAdd.java").getLines()
     val codeBody = c.filter(x=> (!(x.contains("REMOVE")))).map(x => x+"\n").mkString
 
     val code = CodeFormatter.stripOverlappingComments(
