@@ -64,7 +64,7 @@ public class JCUDAVecAdd { // REMOVE
             inpitr = inp;
         }
 
-        private void extractInput() {
+        private void processCPU() {
             for(int i=0; inpitr.hasNext();i++) {
                 InternalRow r = (InternalRow) inpitr.next();
                 hostinput0[i] = r.getLong(0);
@@ -72,9 +72,6 @@ public class JCUDAVecAdd { // REMOVE
                 hostinput2[i] = r.getUTF8String(2).clone();
                 numElements++;
             }
-        }
-
-        private void processCPU() {
             for(int i=0;i<numElements;i++)
                 hostoutput0[i] = hostinput0[i] + hostinput1[i];
 
@@ -82,8 +79,7 @@ public class JCUDAVecAdd { // REMOVE
 
         public void execute() {
             processed = true;
-            //extractInput();
-            processGPU();
+            processCPU();
         }
 
         public InternalRow next() {
@@ -96,7 +92,7 @@ public class JCUDAVecAdd { // REMOVE
             return (InternalRow) result;
         }
 
-        public boolean hasNext() {
+        public boolean hasNext() {	
             if(!processed) execute();
             return idx < numElements;
         }

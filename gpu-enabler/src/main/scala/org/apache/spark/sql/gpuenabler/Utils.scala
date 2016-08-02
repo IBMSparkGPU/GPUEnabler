@@ -41,9 +41,12 @@ case class MAPGPUExec[U](cf: CudaFunc, child: SparkPlan,encoder : Encoder[U])
     val numOutputRows = longMetric("numOutputRows")
     val childRDD = child.execute();
 
+    JCUDACodeGen.generateTest(inputSchema,outputSchema,cf,10)
+
     childRDD.mapPartitionsWithIndex { (index, iter) =>
 
-      val buffer = JCUDACodeGen.generateFromFile(child.schema)
+      //val buffer = JCUDACodeGen.generateFromFile(child.schema)
+      val buffer = JCUDACodeGen.generateTest(inputSchema,outputSchema,cf,10)
       // val buffer = JCUDACodeGen.generate(child.schema)
       // val buffer = new JCUDAJava().generateIt(child.schema)
       buffer.init(iter.asJava)
@@ -81,7 +84,7 @@ object GPUOperators extends Strategy {
   }
 }
 
-case class Args(val name:String, val dtype: String)
+case class Args(val dtype:String, val name: String)
 case class Func(val fname:String, val ptxPath: String)
 case class CudaFunc(val func: Func, val inputArgs : Array[Args], val outputArgs : Array[Args])
 
@@ -96,14 +99,19 @@ object Utils {
 
   def init(ss : SparkSession, fname : String): Unit = {
     import ss.implicits._
-    ss.read.json(fname).as[CudaFunc].foreach(x=>cudaFunc.update(x.func.fname,x))
+    val c = ss.read.json(fname).as[CudaFunc]
+    c.show()
+    c.collect()(1).inputArgs.foreach(x => println("name = " + x.name + "type =" + x.dtype))
+
+
+    c.foreach(x=>cudaFunc += x.func.fname -> x)
   }
 
   implicit class tempClass[T: Encoder](ds: Dataset[T]) {
 
 
     def mapGPU[U:Encoder](inp: String): Dataset[U] =  {
-      val cf = cudaFunc.get(inp).get
+      val cf = cudaFunc(inp)
       println("function args " + cf.inputArgs.toList);
       val encoder = implicitly[Encoder[U]]
 

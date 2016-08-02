@@ -23,14 +23,15 @@ object DSDebug {
     val ss = org.apache.spark.sql.SparkSession.builder.getOrCreate()
     import ss.implicits._
 
-    //Utils.init(ss,"examples/src/main/resources/GPUFuncs.json")
+    // Utils.init(ss,"examples/src/main/resources/GPUFuncs.json")
     Utils.init(ss,"src/main/resources/GPUFuncs.json")
 
     //val ds = ss.read.json("examples/src/main/resources/data.json").as[data];
     val ds = ss.read.json("src/main/resources/data.json").as[data];
 
-    ds.mapGPU[data1]("sum").show()
-    ds.mapGPU[data1]("mul").show()
+    ds.collect()(0).name
+
+    ds.mapGPU[data1]("add").show()
 
 
 
