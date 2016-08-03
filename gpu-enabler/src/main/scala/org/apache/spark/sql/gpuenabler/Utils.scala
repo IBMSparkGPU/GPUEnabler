@@ -10,7 +10,6 @@ import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.gpuenabler.MAPGPU
 import org.apache.spark.sql._
 import scala.collection.mutable.HashMap
 
@@ -27,7 +26,6 @@ case class MAPGPUExec[U](cf: CudaFunc, child: SparkPlan,encoder : Encoder[U])
   lazy val outputSchema = encoder.schema
 
   override def output: Seq[Attribute] = {
-    // child.output.foreach(a => println(a));
     //child.output.map { a => a}
     outputSchema.toAttributes
   }
@@ -37,16 +35,13 @@ case class MAPGPUExec[U](cf: CudaFunc, child: SparkPlan,encoder : Encoder[U])
     "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"))
 
   protected override def doExecute(): RDD[InternalRow] = {
-    child.printSchema()
     val numOutputRows = longMetric("numOutputRows")
     val childRDD = child.execute();
-
-    JCUDACodeGen.generateTest(inputSchema,outputSchema,cf,10)
 
     childRDD.mapPartitionsWithIndex { (index, iter) =>
 
       //val buffer = JCUDACodeGen.generateFromFile(child.schema)
-      val buffer = JCUDACodeGen.generateTest(inputSchema,outputSchema,cf,10)
+      val buffer = JCUDACodeGen.generate(inputSchema,outputSchema,cf,10)
       // val buffer = JCUDACodeGen.generate(child.schema)
       // val buffer = new JCUDAJava().generateIt(child.schema)
       buffer.init(iter.asJava)
@@ -76,7 +71,6 @@ case class MAPGPU[U:Encoder](func: CudaFunc, child: LogicalPlan,encoder : Encode
 object GPUOperators extends Strategy {
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
     case MAPGPU(cf, child,encoder) =>
-      println("Mapping MAPGPU -> MAPGPUExec")
       MAPGPUExec(cf, planLater(child),encoder) :: Nil
     case _ => {
       Nil
@@ -100,10 +94,6 @@ object Utils {
   def init(ss : SparkSession, fname : String): Unit = {
     import ss.implicits._
     val c = ss.read.json(fname).as[CudaFunc]
-    c.show()
-    c.collect()(1).inputArgs.foreach(x => println("name = " + x.name + "type =" + x.dtype))
-
-
     c.foreach(x=>cudaFunc += x.func.fname -> x)
   }
 
@@ -112,14 +102,7 @@ object Utils {
 
     def mapGPU[U:Encoder](inp: String): Dataset[U] =  {
       val cf = cudaFunc(inp)
-      println("function args " + cf.inputArgs.toList);
       val encoder = implicitly[Encoder[U]]
-
-      println("Child attr = " + ds.logicalPlan.output)
-      println("My attr = " + encoder.schema.toAttributes)
-      // encoder.schema.toAttributes(0).toString()
-
-
       Dataset[U](ds.sparkSession, MAPGPU[U](cf, ds.logicalPlan,encoder))
     }
 

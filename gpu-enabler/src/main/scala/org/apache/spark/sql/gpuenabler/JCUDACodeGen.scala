@@ -100,19 +100,7 @@ object JCUDACodeGen extends Logging {
     codeBody.toString
   }
 
-  def generate(inputSchema: StructType): JCUDAInterface = {
-
-    val ctx = newCodeGenContext()
-
-    val codeBody =  new StringBuilder
-    val code = CodeFormatter.stripOverlappingComments(
-      new CodeAndComment(codeBody.toString(), ctx.getPlaceHolderToComments()))
-
-    val p = CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[JCUDAInterface]
-    return p;
-  }
-
-  def generateTest(inputSchema : StructType, outputSchema : StructType,
+  def generate(inputSchema : StructType, outputSchema : StructType,
                    cf : CudaFunc, maxRows : Int) : JCUDAInterface = {
 
     case class variable(name:String, hostVarName:String, devVarName : String, dtype: String, pos : Int)
@@ -123,9 +111,6 @@ object JCUDACodeGen extends Logging {
       val pos = schema.toAttributes.indexWhere(a => a.name.equalsIgnoreCase(name))
       pos
     }
-
-    println("Input Args in CF"+cf.inputArgs.toList)
-    cf.inputArgs.foreach(x=>println(x.name))
 
     var gpu_inputVariables = cf.inputArgs.map {
       x =>
@@ -162,7 +147,6 @@ object JCUDACodeGen extends Logging {
 
     val output_schemaVariables = outputSchema.toAttributes.map {
       x =>
-        println("finding schema index for " + x.name)
         variable(x.name,
           findVariableName(x.name),
           null,
@@ -170,11 +154,10 @@ object JCUDACodeGen extends Logging {
           findSchemaIndex(outputSchema, x.name))
     }
 
-    output_schemaVariables.foreach(x => println(s"outschema ${x.name} , ${x.hostVarName} ${x.dtype} ${x.pos}"))
-
 
     def printDynamicVariables() = {
       val codeBody =  new StringBuilder
+      codeBody.append("\n //TODO convert it to ArrayBuffer, also try to copy to pinned mem directly \n")
       codeBody.append("\n //host input variables\n")
       gpu_inputVariables.foreach(x => codeBody.append(s"private ${x.dtype} ${x.hostVarName}[] = new ${x.dtype}[$maxRows];\n"))
       codeBody.append("\n //host output variables\n")
@@ -401,22 +384,21 @@ object JCUDACodeGen extends Logging {
     codeBody ++=
       s"""
         |${printStaticImports()}
-        |public class JCUDAVecAdd { // REMOVE
+        |// public class JCUDAVecAdd { // UNCOMMENT
         |$printStaticConstructors
         |$printInterfaceBody
-        |} // REMOVE
+        |// } // UNCOMMENT
       """.stripMargin
 
-    val codeString = codeBody.toString().split("\n").filter(x=> (!(x.contains("REMOVE")))).map(x => x+"\n").mkString
-    val code = new CodeAndComment(codeString,ctx.getPlaceHolderToComments())
+    val code = new CodeAndComment(codeBody.toString(),ctx.getPlaceHolderToComments())
 
-    val formatedCode = CodeFormatter.format(new CodeAndComment(codeBody.toString(),ctx.getPlaceHolderToComments()))
     import java.io._
-    val pw = new PrintWriter(new File("/tmp/gpuTest.java" ))
-    pw.write(formatedCode);
+    val fpath = s"/tmp/${cf.func.fname}gpuTest.java"
+    val pw = new PrintWriter(new File(fpath))
+    pw.write(CodeFormatter.format(code))
     pw.close
 
-    println(CodeFormatter.format(code))
+    println("The generated file path = " + fpath)
 
     val p = CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[JCUDAInterface]
 

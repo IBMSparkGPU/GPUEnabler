@@ -32,6 +32,7 @@ object DSDebug {
     ds.collect()(0).name
 
     ds.mapGPU[data1]("add").show()
+    ds.mapGPU[data1]("mul").show()
 
 
 
