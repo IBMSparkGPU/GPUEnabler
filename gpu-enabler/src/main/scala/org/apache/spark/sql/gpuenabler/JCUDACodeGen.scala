@@ -30,7 +30,7 @@ import org.apache.spark.sql.types.StructType
 abstract class JCUDAInterface {
   def hasNext() : Boolean
   def next() : InternalRow
-  def init(itr : java.util.Iterator[InternalRow])
+  def init(itr : java.util.Iterator[InternalRow], size : Int)
 }
 
 /**
@@ -101,7 +101,7 @@ object JCUDACodeGen extends Logging {
   }
 
   def generate(inputSchema : StructType, outputSchema : StructType,
-                   cf : CudaFunc, maxRows : Int) : JCUDAInterface = {
+                   cf : CudaFunc) : JCUDAInterface = {
 
     case class variable(name:String, hostVarName:String, devVarName : String, dtype: String, pos : Int)
 
@@ -157,11 +157,11 @@ object JCUDACodeGen extends Logging {
 
     def printDynamicVariables() = {
       val codeBody =  new StringBuilder
-      codeBody.append("\n //TODO convert it to ArrayBuffer, also try to copy to pinned mem directly \n")
+      codeBody.append("\n //TODO convert it to ArrayBuffer, also try to copy to pinned mem directly")
       codeBody.append("\n //host input variables\n")
-      gpu_inputVariables.foreach(x => codeBody.append(s"private ${x.dtype} ${x.hostVarName}[] = new ${x.dtype}[$maxRows];\n"))
+      gpu_inputVariables.foreach(x => codeBody.append(s"private ${x.dtype} ${x.hostVarName}[];\n"))
       codeBody.append("\n //host output variables\n")
-      gpu_outputVariables.foreach(x => codeBody.append(s"private ${x.dtype} ${x.hostVarName}[] = new ${x.dtype}[$maxRows];\n"))
+      gpu_outputVariables.foreach(x => codeBody.append(s"private ${x.dtype} ${x.hostVarName}[];\n"))
       codeBody.toString()
     }
 
@@ -174,8 +174,9 @@ object JCUDACodeGen extends Logging {
          |        this.rowWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, $cnt);
          |    }
          |
-         |    public void init(Iterator<InternalRow> inp) {
+         |    public void init(Iterator<InternalRow> inp, int size) {
          |        inpitr = inp;
+         |        numElements = size;
          |    }
          |
          |    public void execute() {
@@ -224,6 +225,16 @@ object JCUDACodeGen extends Logging {
           s"get$name($pos).clone()"
         else
           "get" + name(0).toUpper + name.substring(1) + s"($pos)"
+      }
+
+      def printAllocateMemory = {
+        val codeBody =  new StringBuilder
+        codeBody.append("\n //TODO convert it to ArrayBuffer, also try to copy to pinned mem directly")
+        codeBody.append("\n //host input variables\n")
+        gpu_inputVariables.foreach(x => codeBody.append(s"${x.hostVarName} = new ${x.dtype}[numElements];\n"))
+        codeBody.append("\n //host output variables\n")
+        gpu_outputVariables.foreach(x => codeBody.append(s"${x.hostVarName} = new ${x.dtype}[numElements];\n"))
+        codeBody.toString()
       }
 
       def printExtractFromRow = {
@@ -342,10 +353,10 @@ object JCUDACodeGen extends Logging {
            |    cuModuleGetFunction(function, module, "${cf.func.fname}");
            |
            |    // Allocate and fill the host hostinput data
+           |    $printAllocateMemory
            |    for(int i=0; inpitr.hasNext();i++) {
            |        InternalRow r = (InternalRow) inpitr.next();
            |        $printExtractFromRow
-           |        numElements++;
            |    }
            |
            |     // Allocate the device hostinput data, and copy the
@@ -397,6 +408,8 @@ object JCUDACodeGen extends Logging {
     val pw = new PrintWriter(new File(fpath))
     pw.write(CodeFormatter.format(code))
     pw.close
+
+    println(CodeFormatter.format(code))
 
     println("The generated file path = " + fpath)
 

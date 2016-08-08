@@ -13,7 +13,11 @@ import org.apache.spark.unsafe.types.UTF8String;
 
 import java.nio.CharBuffer;
 import java.nio.IntBuffer;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+
 
 import static jcuda.driver.JCudaDriver.*;
 
@@ -47,12 +51,12 @@ public class JCUDAVecAdd { // REMOVE
         private int numElements = 0;
 
         //host input variables
-        private long hostinput0[] = new long[10];
-        private long hostinput1[] = new long[10];
-        private UTF8String hostinput2[] = new UTF8String[10];
+        private long hostinput0[];
+        private long hostinput1[];
+        private UTF8String hostinput2[];
 
         //host output variables
-        private long hostoutput0[] = new long[10];
+        private long hostoutput0[];
 
         public myJCUDAInterface() {
             result = new UnsafeRow(2);
@@ -60,20 +64,30 @@ public class JCUDAVecAdd { // REMOVE
             this.rowWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, 2);
         }
 
-        public void init(Iterator<InternalRow> inp) {
+        public void init(Iterator<InternalRow> inp, int size) {
             inpitr = inp;
+            numElements = size;
         }
 
         private void processCPU() {
+
+            hostinput0 = new long[numElements];
+            hostinput1 = new long[numElements];
+            hostinput2 = new UTF8String[numElements];
+
+            //host output variables
+            hostoutput0 = new long[numElements];
+
             for(int i=0; inpitr.hasNext();i++) {
                 InternalRow r = (InternalRow) inpitr.next();
                 hostinput0[i] = r.getLong(0);
                 hostinput1[i] = r.getLong(1);
                 hostinput2[i] = r.getUTF8String(2).clone();
-                numElements++;
             }
-            for(int i=0;i<numElements;i++)
+
+            for(int i=0;i<numElements;i++) {
                 hostoutput0[i] = hostinput0[i] + hostinput1[i];
+            }
 
         }
 

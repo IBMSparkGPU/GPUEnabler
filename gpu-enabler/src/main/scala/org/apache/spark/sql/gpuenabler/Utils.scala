@@ -40,11 +40,14 @@ case class MAPGPUExec[U](cf: CudaFunc, child: SparkPlan,encoder : Encoder[U])
 
     childRDD.mapPartitionsWithIndex { (index, iter) =>
 
+      val buffer = JCUDACodeGen.generate(inputSchema,outputSchema,cf)
       //val buffer = JCUDACodeGen.generateFromFile(child.schema)
-      val buffer = JCUDACodeGen.generate(inputSchema,outputSchema,cf,10)
+      //val buffer = JCUDACodeGen.generate(inputSchema,outputSchema,cf,10)
       // val buffer = JCUDACodeGen.generate(child.schema)
       // val buffer = new JCUDAJava().generateIt(child.schema)
-      buffer.init(iter.asJava)
+      val list = new mutable.ListBuffer[InternalRow]
+      iter.foreach(x => list += x.copy())
+      buffer.init(list.toIterator.asJava,list.size)
       new Iterator[InternalRow] {
         override def hasNext: Boolean = {
           buffer.hasNext

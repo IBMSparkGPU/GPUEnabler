@@ -6,7 +6,7 @@ CXXFLAGS ?= -m64 -O3 -Xcompiler -Wall --std=c++11 -g
 NVCCFLAGS ?= -arch=sm_$(COMPUTE_CAPABILITY) -Xptxas="-v"
 
 
-all : SparkGPUExamples.ptx GpuEnablerExamples.ptx JCudaVectorAddKernel.ptx
+all : SparkGPUExamples.ptx GpuEnablerExamples.ptx
 
 SparkGPUExamples.ptx: SparkGPUExamples.cu
 	$(NVCC) -ccbin $(CXX) $(CXXFLAGS) $(NVCCFLAGS) -ptx -o $@ -c $^
@@ -14,8 +14,5 @@ SparkGPUExamples.ptx: SparkGPUExamples.cu
 GpuEnablerExamples.ptx: GpuEnablerExamples.cu
 	$(NVCC) -ccbin $(CXX) $(CXXFLAGS) $(NVCCFLAGS) -ptx -o $@ -c $^
 
-JCudaVectorAddKernel.ptx: JCudaVectorAddKernel.cu
-	$(NVCC) -ccbin $(CXX) $(CXXFLAGS) $(NVCCFLAGS) -ptx -o $@ -c $^
-
 clean:
-	rm -f SparkGPUExamples.ptx GpuEnablerExamples.ptx JCudaVectorAddKernel.ptx
+	rm -f SparkGPUExamples.ptx GpuEnablerExamples.ptx
