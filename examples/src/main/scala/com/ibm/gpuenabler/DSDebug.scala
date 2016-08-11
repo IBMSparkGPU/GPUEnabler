@@ -24,13 +24,12 @@ object DSDebug {
     import ss.implicits._
 
 
-    // Utils.init(ss,"examples/src/main/resources/GPUFuncs.json")
-    Utils.init(ss,"src/main/resources/GPUFuncs.json")
+    Utils.init(ss,Utils.homeDir +"GPUEnabler/examples/src/main/resources/GPUFuncs.json")
 
-    //val ds = ss.read.json("examples/src/main/resources/data.json").as[data];
-    val ds = ss.read.json("src/main/resources/data.json").as[data];
+    val ds = ss.read.json(Utils.homeDir + "GPUEnabler/examples/src/main/resources/data.json").as[data];
 
     ds.mapGPU[data1]("add").show()
+    ds.mapGPU[data1]("mul").show()
 
   }
 

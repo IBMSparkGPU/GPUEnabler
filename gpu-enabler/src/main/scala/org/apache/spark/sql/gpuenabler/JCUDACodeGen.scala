@@ -22,7 +22,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.GeneratePredicate._
 import org.apache.spark.sql.catalyst.expressions.codegen._
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataType, StringType, StructType}
 
 /**
   * Interface for generated predicate
@@ -38,158 +38,77 @@ abstract class JCUDAInterface {
   */
 object JCUDACodeGen extends Logging {
 
-  def printStaticImports() = {
-    val code =
-      """
-        |        import jcuda.Pointer;
-        |        import jcuda.Sizeof;
-        |        import jcuda.driver.CUdeviceptr;
-        |        import jcuda.driver.CUfunction;
-        |        import jcuda.driver.CUmodule;
-        |        import org.apache.spark.sql.catalyst.InternalRow;
-        |        import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
-        |        import org.apache.spark.sql.gpuenabler.JCUDAInterface;
-        |        import org.apache.spark.unsafe.types.UTF8String;
-        |
-        |        import java.nio.CharBuffer;
-        |        import java.nio.IntBuffer;
-        |        import java.util.Iterator;
-        |        import static jcuda.driver.JCudaDriver.*;
-        |        import com.ibm.gpuenabler.GPUSparkEnv;
-      """.stripMargin
-    code
-  }
+  case class Variable(colName:String, hostVarName:String, devVarName : String, dtype: DataType, schemaIdx : Int)
 
-  def printStaticConstructors() = {
-    val code =
-      """
-        |    // Handle to call from compiled source
-        |    public JCUDAInterface generate(Object[] references) {
-        |        JCUDAInterface j = new myJCUDAInterface();
-        |        return j;
-        |    }
-        |
-        |    //Handle to directly call from JCUDAVecAdd instance for debugging.
-        |    public JCUDAInterface generate() {
-        |        JCUDAInterface j = new myJCUDAInterface();
-        |        return j;
-        |    }
-        |
-      """.stripMargin
-    code
-  }
-
-  def printStaticVariables() = {
-    val codeBody = new StringBuilder
-
-    codeBody ++=
-      """
-        |        //Static variables
-        |        private Object[] references;
-        |        private UnsafeRow result;
-        |        private org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder holder;
-        |        private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter rowWriter;
-        |        private Iterator<InternalRow> inpitr = null;
-        |        private boolean processed = false;
-        |        private int idx = 0;
-        |        private int numElements = 0;
-      """.stripMargin
-
-
-
-    codeBody.toString
-  }
+  def findSchemaIndex(schema : StructType, colName : String) =
+     schema.toAttributes.indexWhere(a => a.name.equalsIgnoreCase(colName))
 
   def generate(inputSchema : StructType, outputSchema : StructType,
                    cf : CudaFunc) : JCUDAInterface = {
 
-    case class variable(name:String, hostVarName:String, devVarName : String, dtype: String, pos : Int)
+    val ctx = newCodeGenContext()
 
-    def dtypeResolve(dtype : String) = if(dtype.equalsIgnoreCase("String")) "UTF8String" else dtype
-
-    def findSchemaIndex(schema : StructType, name : String) = {
-      val pos = schema.toAttributes.indexWhere(a => a.name.equalsIgnoreCase(name))
-      pos
-    }
-
-    var gpu_inputVariables = cf.inputArgs.map {
-      x =>
-        variable(x.name,
-          "hostinput_"+x.name,
-          "deviceinput_"+x.name,
-           dtypeResolve(x.dtype),
-          findSchemaIndex(inputSchema,x.name)
+    val gpu_inputVariables = cf.inputArgs.map {
+      x => {
+        val idx = findSchemaIndex(inputSchema, x.name)
+        Variable(x.name,
+          "hostinput_" + x.name,
+          "deviceinput_" + x.name,
+          inputSchema(idx).dataType,
+          idx
         )
+      }
     }.toSeq
 
     val gpu_outputVariables = cf.outputArgs.map {
-      x => variable(x.name,
-        "hostoutput_"+x.name,
-        "deviceoutput_"+x.name,
-        dtypeResolve(x.dtype), -1)
+      x => {
+        val idx = findSchemaIndex(outputSchema, x.name)
+        Variable(x.name,
+          "hostoutput_" + x.name,
+          "deviceoutput_" + x.name,
+          outputSchema(idx).dataType, -1)
+      }
     }.toSeq
 
 
-    def findVariableName(name : String) = {
-      val v = gpu_outputVariables.find(x => x.name.equals(name)).getOrElse {
-        gpu_inputVariables.find(x=> x.name.equals(name)).getOrElse {
-          val s = inputSchema.toAttributes.find(x => x.name.equals(name)).get
-          val v = variable(s.name,
-                          "hostinput_"+s.name,null,
-                          dtypeResolve(s.dataType.typeName),
-                          findSchemaIndex(inputSchema,name))
-          gpu_inputVariables = gpu_inputVariables :+ v
-          v
-        }
-      }
-      v.hostVarName
-    }
+    // columns to be copied from inputRow to outputRow without gpu computation.
+    var directCopyVariables : Seq[Variable]  = Seq.empty[Variable]
 
-    val output_schemaVariables = outputSchema.toAttributes.map {
+    // TO write to output internal Row
+    val output_Variables = outputSchema.toAttributes.map {
       x =>
-        variable(x.name,
+        def findVariableName(colName : String) = {
+          val v = gpu_outputVariables.find(x => x.colName.equals(colName)).getOrElse {
+            gpu_inputVariables.find(x=> x.colName.equals(colName)).getOrElse {
+              val s = inputSchema.toAttributes.find(x => x.name.equals(colName)).get
+              val v = Variable(s.name,
+                "hostinput_"+s.name,null,
+                s.dataType,
+                findSchemaIndex(inputSchema,colName))
+              directCopyVariables = directCopyVariables :+ v
+              v
+            }
+          }
+          v.hostVarName
+        }
+        Variable(x.name,
           findVariableName(x.name),
           null,
-          dtypeResolve(x.dataType.typeName),
+          x.dataType,
           findSchemaIndex(outputSchema, x.name))
     }
 
 
-    def printDynamicVariables() = {
+    def printVariables() = {
       val codeBody =  new StringBuilder
       codeBody.append("\n //TODO convert it to ArrayBuffer, also try to copy to pinned mem directly")
       codeBody.append("\n //host input variables\n")
-      gpu_inputVariables.foreach(x => codeBody.append(s"private ${x.dtype} ${x.hostVarName}[];\n"))
+      gpu_inputVariables.foreach(x => codeBody.append(s"private ${ctx.javaType(x.dtype)} ${x.hostVarName}[];\n"))
+      codeBody.append("\n //direct copy variables\n")
+      directCopyVariables.foreach(x => codeBody.append(s"private ${ctx.javaType(x.dtype)} ${x.hostVarName}[];\n"))
       codeBody.append("\n //host output variables\n")
-      gpu_outputVariables.foreach(x => codeBody.append(s"private ${x.dtype} ${x.hostVarName}[];\n"))
+      gpu_outputVariables.foreach(x => codeBody.append(s"private ${ctx.javaType(x.dtype)} ${x.hostVarName}[];\n"))
       codeBody.toString()
-    }
-
-    def printInterfaceStaticFunctions() = {
-      val cnt = outputSchema.toAttributes.length
-      s"""
-         |    public myJCUDAInterface() {
-         |        result = new UnsafeRow($cnt);
-         |        this.holder = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(result, 32);
-         |        this.rowWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, $cnt);
-         |    }
-         |
-         |    public void init(Iterator<InternalRow> inp, int size) {
-         |        inpitr = inp;
-         |        numElements = size;
-         |    }
-         |
-         |    public void execute() {
-         |      processed = true;
-         |      processGPU();
-         |    }
-         |
-         |    public boolean hasNext() {
-         |        if(!processed) execute();
-         |        return idx < numElements;
-         |    }
-         |
-       """.stripMargin
     }
 
     def printNext() = {
@@ -203,8 +122,8 @@ object JCUDACodeGen extends Logging {
         """.stripMargin
       }
 
-      output_schemaVariables.foreach(x => {
-        codeBody.append(s"rowWriter.write(${x.pos},${x.hostVarName}[idx]);\n")
+      output_Variables.foreach(x => {
+        codeBody.append(s"rowWriter.write(${x.schemaIdx},${x.hostVarName}[idx]);\n")
       })
 
       codeBody.append {
@@ -220,29 +139,34 @@ object JCUDACodeGen extends Logging {
 
     def printProcessGPU() = {
 
-      def funcName(name : String,pos : Int) = {
+      def funcName(name : String,schemaIdx : Int) = {
         if(name.endsWith("String"))
-          s"get$name($pos).clone()"
+          s"get$name($schemaIdx).clone()"
         else
-          "get" + name(0).toUpper + name.substring(1) + s"($pos)"
+          "get" + name(0).toUpper + name.substring(1) + s"($schemaIdx)"
       }
 
       def printAllocateMemory = {
         val codeBody =  new StringBuilder
         codeBody.append("\n //TODO convert it to ArrayBuffer, also try to copy to pinned mem directly")
         codeBody.append("\n //host input variables\n")
-        gpu_inputVariables.foreach(x => codeBody.append(s"${x.hostVarName} = new ${x.dtype}[numElements];\n"))
+        gpu_inputVariables.foreach(x => codeBody.append(s"${x.hostVarName} = new ${ctx.javaType(x.dtype)}[numElements];\n"))
+        codeBody.append("\n //direct copy variables\n")
+        directCopyVariables.foreach(x => codeBody.append(s"${x.hostVarName} = new ${ctx.javaType(x.dtype)}[numElements];\n"))
         codeBody.append("\n //host output variables\n")
-        gpu_outputVariables.foreach(x => codeBody.append(s"${x.hostVarName} = new ${x.dtype}[numElements];\n"))
+        gpu_outputVariables.foreach(x => codeBody.append(s"${x.hostVarName} = new ${ctx.javaType(x.dtype)}[numElements];\n"))
         codeBody.toString()
       }
 
       def printExtractFromRow = {
         val codeBody =  new StringBuilder
 
-        gpu_inputVariables.foreach( x => {
+        (gpu_inputVariables ++ directCopyVariables).foreach( x => {
          codeBody.append{
-           s"${x.hostVarName}[i] = r.${funcName(x.dtype,x.pos)}; \n"
+           x.dtype match {
+             case StringType => s"${x.hostVarName}[i] = ${ctx.getValue("r",x.dtype,x.schemaIdx.toString)}.clone(); \n"
+             case _ => s"${x.hostVarName}[i] = ${ctx.getValue("r",x.dtype,x.schemaIdx.toString)}; \n"
+           }
          }
         })
         codeBody.toString()
@@ -260,7 +184,6 @@ object JCUDACodeGen extends Logging {
           """.stripMargin)
 
         (gpu_inputVariables ++ gpu_outputVariables).foreach( x => {
-          if(x.devVarName != null)
             codeBody.append(s" Pointer.to(${x.devVarName}),\n")
         })
         codeBody = codeBody.dropRight(2)
@@ -294,7 +217,7 @@ object JCUDACodeGen extends Logging {
         (gpu_outputVariables).foreach(x => {
           codeBody.append {
             s"""
-               |     cuMemcpyDtoH(Pointer.to(${x.hostVarName}),${x.devVarName},numElements * Sizeof.${x.dtype.toUpperCase});
+               |     cuMemcpyDtoH(Pointer.to(${x.hostVarName}),${x.devVarName},numElements * Sizeof.${ctx.javaType(x.dtype).toUpperCase});
               """
           }
         })
@@ -319,8 +242,8 @@ object JCUDACodeGen extends Logging {
             codeBody.append {
               s"""
               |     CUdeviceptr ${x.devVarName} = new CUdeviceptr();
-              |     cuMemAlloc(${x.devVarName} , numElements * Sizeof.${x.dtype.toUpperCase});
-              |     cuMemcpyHtoD(${x.devVarName}, Pointer.to(${x.hostVarName}),numElements * Sizeof.${x.dtype.toUpperCase});
+              |     cuMemAlloc(${x.devVarName} , numElements * Sizeof.${ctx.javaType(x.dtype).toUpperCase});
+              |     cuMemcpyHtoD(${x.devVarName}, Pointer.to(${x.hostVarName}),numElements * Sizeof.${ctx.javaType(x.dtype).toUpperCase});
               """
             }
           }
@@ -333,7 +256,7 @@ object JCUDACodeGen extends Logging {
             codeBody.append {
               s"""
                  |     CUdeviceptr ${x.devVarName} = new CUdeviceptr();
-                 |     cuMemAlloc(${x.devVarName} , numElements * Sizeof.${x.dtype.toUpperCase});
+                 |     cuMemAlloc(${x.devVarName} , numElements * Sizeof.${ctx.javaType(x.dtype).toUpperCase});
               """
             }
           }
@@ -374,56 +297,110 @@ object JCUDACodeGen extends Logging {
     }
 
 
-    def printInterfaceBody() = {
+    val codeBody =
       s"""
-       |class myJCUDAInterface extends JCUDAInterface {
-       |$printStaticVariables
-       |$printDynamicVariables
-       |$printInterfaceStaticFunctions
-       |$printNext
-       |$printProcessGPU
-       |}
-      """.
-        stripMargin
-      }
-
-
-    val ctx = newCodeGenContext()
-
-    val codeBody =  new StringBuilder
-
-    codeBody ++=
-      s"""
-        |${printStaticImports()}
-        |// public class JCUDAVecAdd { // UNCOMMENT
-        |$printStaticConstructors
-        |$printInterfaceBody
-        |// } // UNCOMMENT
+        |package org.apache.spark.sql.gpuenabler; // REMOVE
+        |import jcuda.Pointer;
+        |import jcuda.Sizeof;
+        |import jcuda.driver.CUdeviceptr;
+        |import jcuda.driver.CUfunction;
+        |import jcuda.driver.CUmodule;
+        |import org.apache.spark.sql.catalyst.InternalRow;
+        |import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
+        |import org.apache.spark.sql.gpuenabler.JCUDAInterface;
+        |import org.apache.spark.unsafe.types.UTF8String;
+        |
+        |import java.nio.CharBuffer;
+        |import java.nio.IntBuffer;
+        |import java.util.Iterator;
+        |import static jcuda.driver.JCudaDriver.*;
+        |import com.ibm.gpuenabler.GPUSparkEnv;
+        |
+        |public class GeneratedCode_${cf.func.fname} { // REMOVE
+        |
+        |    // Handle to call from compiled source
+        |    public JCUDAInterface generate(Object[] references) {
+        |        JCUDAInterface j = new myJCUDAInterface();
+        |        return j;
+        |    }
+        |
+        |    //Handle to directly call from JCUDAVecAdd instance for debugging.
+        |    public JCUDAInterface generate() {
+        |        JCUDAInterface j = new myJCUDAInterface();
+        |        return j;
+        |    }
+        |
+        |   class myJCUDAInterface extends JCUDAInterface {
+        |        //Static variables
+        |        private Object[] references;
+        |        private UnsafeRow result;
+        |        private org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder holder;
+        |        private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter rowWriter;
+        |        private Iterator<InternalRow> inpitr = null;
+        |        private boolean processed = false;
+        |        private int idx = 0;
+        |        private int numElements = 0;
+        |
+        |    public myJCUDAInterface() {
+        |        result = new UnsafeRow(${outputSchema.toAttributes.length});
+        |        this.holder = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(result, 32);
+        |        this.rowWriter =
+        |        new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, ${outputSchema.toAttributes.length});
+        |    }
+        |
+        |    public void init(Iterator<InternalRow> inp, int size) {
+        |        inpitr = inp;
+        |        numElements = size;
+        |    }
+        |
+        |    public void execute() {
+        |      processed = true;
+        |      processGPU();
+        |    }
+        |
+        |    public boolean hasNext() {
+        |        if(!processed) execute();
+        |        return idx < numElements;
+        |    }
+        |
+        |      $printVariables
+        |      $printNext
+        |      $printProcessGPU
+        |   }
+        |} // REMOVE
       """.stripMargin
 
-    val code = new CodeAndComment(codeBody.toString(),ctx.getPlaceHolderToComments())
+    def writeToFile(codeBody : String): Unit = {
+      val code = new CodeAndComment(codeBody,ctx.getPlaceHolderToComments())
+      import java.io._
+      val fpath = s"${Utils.homeDir}GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/GeneratedCode_${cf.func.fname}.java"
+      val pw = new PrintWriter(new File(fpath))
+      pw.write(CodeFormatter.format(code))
+      pw.close
+      println(CodeFormatter.format(code))
+      println("The generated file path = " + fpath)
+    }
 
-    import java.io._
-    val fpath = s"/tmp/${cf.func.fname}gpuTest.java"
-    val pw = new PrintWriter(new File(fpath))
-    pw.write(CodeFormatter.format(code))
-    pw.close
+    writeToFile(codeBody)
 
-    println(CodeFormatter.format(code))
+    val code = codeBody.split("\n").filter(!_.contains("REMOVE")).map(_ + "\n").mkString
+    val p = CodeGenerator.compile(new CodeAndComment(code, ctx.getPlaceHolderToComments())).
+      generate(ctx.references.toArray).asInstanceOf[JCUDAInterface]
 
-    println("The generated file path = " + fpath)
-
-    val p = CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[JCUDAInterface]
-
-    return p;
+    if(Utils.homeDir.contains("madhusudanan"))
+      return generateFromFile
+    else {
+      return p;
+    }
 
   }
 
-  def generateFromFile(inputSchema: StructType): JCUDAInterface = {
+  def generateFromFile : JCUDAInterface = {
+
     val ctx = newCodeGenContext()
 
 
-    val c = scala.io.Source.fromFile("/Users/madhusudanan/spark-projects/GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/JCUDAVecAdd.java").getLines()
+    val c = scala.io.Source.fromFile(s"${Utils.homeDir}/GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/JCUDAVecAdd.java").getLines()
     //val c = scala.io.Source.fromFile("/home/kmadhu/GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/JCUDAVecAdd.java").getLines()
     val codeBody = c.filter(x=> (!(x.contains("REMOVE")))).map(x => x+"\n").mkString
 

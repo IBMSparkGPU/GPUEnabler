@@ -94,6 +94,9 @@ object Utils {
 
   val cudaFunc : mutable.HashMap[String,CudaFunc] = new HashMap[String,CudaFunc]
 
+  def homeDir = System.getProperty("user.dir").split("GPUEnabler")(0)
+
+
   def init(ss : SparkSession, fname : String): Unit = {
     import ss.implicits._
     val c = ss.read.json(fname).as[CudaFunc]

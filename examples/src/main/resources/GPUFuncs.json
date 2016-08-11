@@ -1,2 +1,2 @@
-{ "func":{ "fname":"add", "ptxPath":"/JCudaVectorAddKernel.ptx" }, "inputArgs":[ {"dtype":"long","name":"cnt1"}, {"dtype":"long","name":"cnt2"} ], "outputArgs":[ {"dtype":"long","name":"sum"} ] }
-{ "func":{ "fname":"mul", "ptxPath":"/JCudaVectorAddKernel.ptx" }, "inputArgs":[ {"dtype":"long","name":"cnt1"}, {"dtype":"long","name":"cnt2"} ], "outputArgs":[ {"dtype":"long","name":"sum"} ] }
+{ "func":{ "fname":"add", "ptxPath":"/GpuEnablerExamples.ptx" }, "inputArgs":[ {"dtype":"long","name":"cnt1"}, {"dtype":"long","name":"cnt2"} ], "outputArgs":[ {"dtype":"long","name":"sum"} ] }
+{ "func":{ "fname":"mul", "ptxPath":"/GpuEnablerExamples.ptx" }, "inputArgs":[ {"dtype":"long","name":"cnt1"}, {"dtype":"long","name":"cnt2"} ], "outputArgs":[ {"dtype":"long","name":"sum"} ] }
