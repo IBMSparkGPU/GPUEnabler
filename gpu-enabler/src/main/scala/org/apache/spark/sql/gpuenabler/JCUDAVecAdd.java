@@ -51,12 +51,14 @@ public class JCUDAVecAdd { // REMOVE
         private int numElements = 0;
 
         //host input variables
-        private long hostinput0[];
-        private long hostinput1[];
-        private UTF8String hostinput2[];
+        private long GPU_Input0_Host[];
+        private long GPU_Input1_Host[];
+
+        // Direct copy Variables
+        private UTF8String DirectCopy0[];
 
         //host output variables
-        private long hostoutput0[];
+        private long GPU_Output0_Host[];
 
         public myJCUDAInterface() {
             result = new UnsafeRow(2);
@@ -71,22 +73,22 @@ public class JCUDAVecAdd { // REMOVE
 
         private void processCPU() {
 
-            hostinput0 = new long[numElements];
-            hostinput1 = new long[numElements];
-            hostinput2 = new UTF8String[numElements];
+            GPU_Input0_Host = new long[numElements];
+            GPU_Input1_Host = new long[numElements];
+            DirectCopy0 = new UTF8String[numElements];
 
             //host output variables
-            hostoutput0 = new long[numElements];
+            GPU_Output0_Host = new long[numElements];
 
             for(int i=0; inpitr.hasNext();i++) {
                 InternalRow r = (InternalRow) inpitr.next();
-                hostinput0[i] = r.getLong(0);
-                hostinput1[i] = r.getLong(1);
-                hostinput2[i] = r.getUTF8String(2).clone();
+                GPU_Input0_Host[i] = r.getLong(0);
+                GPU_Input1_Host[i] = r.getLong(1);
+                DirectCopy0[i] = r.getUTF8String(2).clone();
             }
 
             for(int i=0;i<numElements;i++) {
-                hostoutput0[i] = hostinput0[i] + hostinput1[i];
+                GPU_Output0_Host[i] = GPU_Input0_Host[i] + GPU_Input1_Host[i];
             }
 
         }
@@ -99,8 +101,8 @@ public class JCUDAVecAdd { // REMOVE
         public InternalRow next() {
             holder.reset();
             rowWriter.zeroOutNullBytes();
-            rowWriter.write(0,hostinput2[idx]);
-            rowWriter.write(1,hostoutput0[idx]);
+            rowWriter.write(0,DirectCopy0[idx]);
+            rowWriter.write(1,GPU_Output0_Host[idx]);
             result.setTotalSize(holder.totalSize());
             idx++;
             return (InternalRow) result;
@@ -125,9 +127,9 @@ public class JCUDAVecAdd { // REMOVE
             // Allocate and fill the host hostinput data
             for(int i=0; inpitr.hasNext();i++) {
                 InternalRow r = (InternalRow) inpitr.next();
-                hostinput0[i] = r.getLong(0);
-                hostinput1[i] = r.getLong(1);
-                hostinput2[i] = r.getUTF8String(2).clone();
+                GPU_Input0_Host[i] = r.getLong(0);
+                GPU_Input1_Host[i] = r.getLong(1);
+                DirectCopy0[i] = r.getUTF8String(2).clone();
                 numElements++;
             }
 
@@ -135,12 +137,12 @@ public class JCUDAVecAdd { // REMOVE
             // host hostinput data to the device
             CUdeviceptr deviceinput0 = new CUdeviceptr();
             cuMemAlloc(deviceinput0, numElements * Sizeof.LONG);
-            cuMemcpyHtoD(deviceinput0, Pointer.to(hostinput0),
+            cuMemcpyHtoD(deviceinput0, Pointer.to(GPU_Input0_Host),
                     numElements * Sizeof.LONG);
 
             CUdeviceptr deviceinput1 = new CUdeviceptr();
             cuMemAlloc(deviceinput1, numElements * Sizeof.LONG);
-            cuMemcpyHtoD(deviceinput1, Pointer.to(hostinput1),
+            cuMemcpyHtoD(deviceinput1, Pointer.to(GPU_Input1_Host),
                     numElements * Sizeof.LONG);
 
             // Allocate device output memory
@@ -169,7 +171,7 @@ public class JCUDAVecAdd { // REMOVE
 
             // Allocate host output memory and copy the device output
             // to the host.
-            cuMemcpyDtoH(Pointer.to(hostoutput0), deviceoutput0,
+            cuMemcpyDtoH(Pointer.to(GPU_Output0_Host), deviceoutput0,
                     numElements * Sizeof.LONG);
 
             // Clean up.

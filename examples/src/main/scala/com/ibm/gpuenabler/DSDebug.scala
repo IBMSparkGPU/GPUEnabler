@@ -28,7 +28,6 @@ object DSDebug {
 
     val ds = ss.read.json(Utils.homeDir + "GPUEnabler/examples/src/main/resources/data.json").as[data];
 
-    ds.mapGPU[data1]("add").show()
     ds.mapGPU[data1]("mul").show()
 
   }
