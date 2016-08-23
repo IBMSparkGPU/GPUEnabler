@@ -66,21 +66,24 @@ object JCUDACodeGen extends Logging {
         val deviceVariableName = s"gpuInputDevice_$colName"
 
         codeStmt += "declareHost" ->
-          s"private ByteBuffer ${hostVariableName};\n"
+          s"""
+             |private ByteBuffer ${hostVariableName};
+             |private MemoryPointer pinMemPtr_$colName;
+           """.stripMargin
 
         codeStmt += "declareDevice" ->
-          s"private CUdeviceptr ${deviceVariableName};\n"
+          s"private MemoryPointer ${deviceVariableName};\n"
 
         codeStmt += "allocateHost" ->
-          s"""|myPointer myptr_$colName = new myPointer();
-              |cuMemAllocHost(myptr_$colName, $size);
+          s"""|pinMemPtr_$colName = new MemoryPointer();
+              |cuMemAllocHost(pinMemPtr_$colName, $size);
               |$hostVariableName =
-              |     myptr_$colName.getByteBuffer(0,
+              |     pinMemPtr_$colName.getByteBuffer(0,
               |                $size).order(ByteOrder.LITTLE_ENDIAN);
            """.stripMargin
 
         codeStmt += "allocateDevice" ->
-          s"""|$deviceVariableName = new CUdeviceptr();
+          s"""|$deviceVariableName = new MemoryPointer();
               |cuMemAlloc($deviceVariableName, $size);
            """.stripMargin
 
@@ -98,10 +101,14 @@ object JCUDACodeGen extends Logging {
 
         codeStmt += "kernel-param" -> s",Pointer.to($deviceVariableName)\n"
 
-        codeStmt += "Free" ->
-          s""" |cuMemFreeHost(myptr_$colName);
-               |cuMemFree($deviceVariableName);
-           """.stripMargin
+        codeStmt += "FreeDeviceMemory" ->
+               s"""|cuMemFree($deviceVariableName);
+                   |${if(!is(RDDOUTPUT)) s"cuMemFreeHost(pinMemPtr_$colName);"}
+                """.stripMargin
+
+        if(is(RDDOUTPUT))
+          codeStmt += "FreeHostMemory" ->
+            s"cuMemFreeHost(pinMemPtr_$colName);"
 
         if (!is(GPUOUTPUT) && is(RDDOUTPUT))
           codeStmt += "writeToInternalRow" ->
@@ -112,29 +119,41 @@ object JCUDACodeGen extends Logging {
         val deviceVariableName = s"gpuOutputDevice_$colName"
 
         codeStmt += "declareHost" ->
-          s"private ${ctx.javaType(dataType)} ${hostVariableName}[];\n"
+          s"""
+             |private ByteBuffer ${hostVariableName};
+             |private MemoryPointer pinMemPtr_$colName;
+           """.stripMargin
 
         codeStmt += "declareDevice" ->
-          s"private CUdeviceptr ${deviceVariableName};\n"
+          s"private MemoryPointer ${deviceVariableName};\n"
 
         codeStmt += "allocateHost" ->
-          s"$hostVariableName = new $javaType[numElements];\n"
+          s"""|pinMemPtr_$colName = new MemoryPointer();
+              |cuMemAllocHost(pinMemPtr_$colName, $size);
+              |${hostVariableName} =
+              |     pinMemPtr_$colName.getByteBuffer(0,
+              |                $size).order(ByteOrder.LITTLE_ENDIAN);
+           """.stripMargin
 
         codeStmt += "allocateDevice" ->
-          s"""|$deviceVariableName = new CUdeviceptr();
+          s"""|$deviceVariableName = new MemoryPointer();
              |cuMemAlloc($deviceVariableName, $size);
            """.stripMargin
 
         codeStmt += "memcpyD2H" ->
-          s"cuMemcpyDtoH(Pointer.to($hostVariableName), $deviceVariableName, $size);\n"
+          s"cuMemcpyDtoH(Pointer.to(${hostVariableName}), $deviceVariableName, $size);\n"
 
         codeStmt += "kernel-param" -> s",Pointer.to($deviceVariableName)\n"
 
         if (is(RDDOUTPUT))
           codeStmt += "writeToInternalRow" ->
-            s"rowWriter.write(${outSchemaIdx},${hostVariableName}[idx]);\n"
+            s"rowWriter.write(${outSchemaIdx},${hostVariableName}.get$boxType());\n"
 
-        codeStmt += "Free" -> s"cuMemFree($deviceVariableName);\n"
+        codeStmt += "FreeDeviceMemory" ->
+          s"cuMemFree($deviceVariableName);\n"
+
+        codeStmt += "FreeHostMemory" ->
+          s"cuMemFreeHost(pinMemPtr_$colName);\n"
       }
       case _ if is(RDDOUTPUT) => {
         val hostVariableName = s"directCopyHost_$colName"
@@ -274,8 +293,8 @@ object JCUDACodeGen extends Logging {
         |        return j;
         |    }
         |
-        |    class myPointer extends CUdeviceptr {
-        |       myPointer() {
+        |    class MemoryPointer extends CUdeviceptr {
+        |       MemoryPointer() {
         |         super();
         |       }
         |       public long getNativePointer() {
@@ -291,6 +310,7 @@ object JCUDACodeGen extends Logging {
         |        private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter rowWriter;
         |        private Iterator<InternalRow> inpitr = null;
         |        private boolean processed = false;
+        |        private boolean freeMemory = true;
         |        private int idx = 0;
         |        private int numElements = 0;
         |
@@ -313,7 +333,18 @@ object JCUDACodeGen extends Logging {
         |           processGPU();
         |           processed = true;
         |        }
-        |        return idx < numElements;
+        |        else if(idx >= numElements) {
+        |           if(freeMemory) {
+        |              freePinnedMemory();
+        |              freeMemory=false;
+        |           }
+        |           return false;
+        |        }
+        |        return true;
+        |    }
+        |
+        |    private void freePinnedMemory() {
+        |        ${getStmt(variables,List("FreeHostMemory"),"")}
         |    }
         |
         |    public void processGPU() {
@@ -360,7 +391,7 @@ object JCUDACodeGen extends Logging {
         |
         |        ${getStmt(variables,List("memcpyD2H"),"")}
         |
-        |        ${getStmt(variables,List("Free"),"")}
+        |        ${getStmt(variables,List("FreeDeviceMemory"),"")}
         |    }
         |
         |    public InternalRow next() {
@@ -392,6 +423,8 @@ object JCUDACodeGen extends Logging {
     val p = CodeGenerator.compile(new CodeAndComment(code, ctx.getPlaceHolderToComments())).
       generate(ctx.references.toArray).asInstanceOf[JCUDAInterface]
 
+    //return generateFromFile
+
     if(Utils.homeDir.contains("madhusudanan"))
       //return generateFromFile
       return new JCUDAVecAdd().generate()
@@ -405,8 +438,7 @@ object JCUDACodeGen extends Logging {
 
     val ctx = new CodegenContext()
 
-    val c = scala.io.Source.fromFile(s"${Utils.homeDir}/GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/JCUDAVecAdd.java").getLines()
-    //val c = scala.io.Source.fromFile("/home/kmadhu/GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/JCUDAVecAdd.java").getLines()
+    val c = scala.io.Source.fromFile(s"${Utils.homeDir}/GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/GeneratedCode_mul.java").getLines()
     val codeBody = c.filter(x=> (!(x.contains("REMOVE")))).map(x => x+"\n").mkString
 
     val code = CodeFormatter.stripOverlappingComments(
