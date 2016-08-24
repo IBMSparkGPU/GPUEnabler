@@ -15,7 +15,7 @@
 /* 015 */ import static jcuda.driver.JCudaDriver.*;
 /* 016 */ import com.ibm.gpuenabler.GPUSparkEnv;
 /* 017 */
-/* 018 */ public class GeneratedCode_arrayTest { // REMOVE
+/* 018 */ public class GeneratedCode_template { // REMOVE
 /* 019 */
 /* 020 */   // Handle to call from compiled source
 /* 021 */   public JCUDAInterface generate(Object[] references) {
