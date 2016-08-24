@@ -74,3 +74,18 @@ __global__ void mul(int n, long *a, long *b, long *sum)
 
 }
 
+extern "C"
+__global__ void arrayTest(int n, long *a, long *b, long *arr,long *sum)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if(i == 0) {
+       printf("In ArrayTest n=%d a=%p b=%p out=%p arr=%p\n",n,a,b,sum,arr);
+    }
+
+    if (i<n)
+    {
+        sum[i] = a[i] * b[i];
+        printf("CUDA KERNEL ArrayTest a=%ld b=%ld sum=%ld arr=[%ld %ld %ld]\n",a[i],b[i],sum[i],arr[i*3],arr[(i*3)+1],arr[(i*3)+2]);
+    }
+
+}

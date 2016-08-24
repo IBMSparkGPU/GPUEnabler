@@ -7,10 +7,15 @@ import jcuda.driver.CUdeviceptr;
 import jcuda.driver.CUfunction;
 import jcuda.driver.CUmodule;
 import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.catalyst.expressions.UnsafeArrayData;
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
+import org.apache.spark.sql.catalyst.util.GenericArrayData;
 import org.apache.spark.sql.gpuenabler.JCUDAInterface;
 import org.apache.spark.unsafe.types.UTF8String;
+import scala.Array;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.CharBuffer;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
@@ -45,6 +50,7 @@ public class JCUDAVecAdd { // REMOVE
         private UnsafeRow result;
         private org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder holder;
         private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter rowWriter;
+        private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeArrayWriter arrayWriter;
         private Iterator<InternalRow> inpitr = null;
         private boolean processed = false;
         private int idx = 0;
@@ -54,16 +60,21 @@ public class JCUDAVecAdd { // REMOVE
         private long GPU_Input0_Host[];
         private long GPU_Input1_Host[];
 
+        private long madhuArray[][];
+        private int madhuArray_numColumns;
+
         // Direct copy Variables
         private UTF8String DirectCopy0[];
 
         //host output variables
         private long GPU_Output0_Host[];
 
+        private ByteBuffer buffer = ByteBuffer.allocateDirect(4).order(ByteOrder.LITTLE_ENDIAN);
+
         public myJCUDAInterface() {
-            result = new UnsafeRow(2);
+            result = new UnsafeRow(3);
             this.holder = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(result, 32);
-            this.rowWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, 2);
+            this.rowWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, 3);
         }
 
         public void init(Iterator<InternalRow> inp, int size) {
@@ -76,20 +87,57 @@ public class JCUDAVecAdd { // REMOVE
             GPU_Input0_Host = new long[numElements];
             GPU_Input1_Host = new long[numElements];
             DirectCopy0 = new UTF8String[numElements];
+            arrayWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeArrayWriter();
+
 
             //host output variables
             GPU_Output0_Host = new long[numElements];
 
             for(int i=0; inpitr.hasNext();i++) {
                 InternalRow r = (InternalRow) inpitr.next();
-                GPU_Input0_Host[i] = r.getLong(0);
-                GPU_Input1_Host[i] = r.getLong(1);
-                DirectCopy0[i] = r.getUTF8String(2).clone();
+                if(i == 0) {
+                    UnsafeArrayData ad = (UnsafeArrayData) r.getArray(0);
+                    madhuArray_numColumns = ad.numElements();
+                    madhuArray = new long[numElements][madhuArray_numColumns];
+
+                    buffer = ByteBuffer.allocateDirect(Sizeof.LONG * numElements * madhuArray_numColumns)
+                            .order(ByteOrder.LITTLE_ENDIAN);
+                    System.out.println("capacity"+buffer.capacity());
+                    System.out.println("limit"+buffer.limit());
+                    System.out.println("position"+buffer.position());
+                }
+
+                UnsafeArrayData ad = (UnsafeArrayData) r.getArray(0);
+                for(int y=0; y<ad.numElements(); y++) {
+                    madhuArray[i][y] = ad.toLongArray()[y];
+                    buffer.putLong(ad.toLongArray()[y]);
+                }
+                GPU_Input0_Host[i] = r.getLong(1);
+                GPU_Input1_Host[i] = r.getLong(2);
+                DirectCopy0[i] = r.getUTF8String(3).clone();
             }
+
+            System.out.println("capacity"+buffer.capacity());
+            System.out.println("limit"+buffer.limit());
+            System.out.println("position"+buffer.position());
+
+            buffer.flip();
+
+            System.out.println("capacity"+buffer.capacity());
+            System.out.println("limit"+buffer.limit());
+            System.out.println("position"+buffer.position());
+
+
+            for(int i=0;i<numElements;i++)
+                for(int j=0;j<madhuArray_numColumns;j++) {
+                    System.out.println("i=" + i + "j=" + j + "data=" + madhuArray[i][j]);
+                    System.out.println("From Buffer"+ buffer.getLong());
+                }
 
             for(int i=0;i<numElements;i++) {
                 GPU_Output0_Host[i] = GPU_Input0_Host[i] + GPU_Input1_Host[i];
             }
+            buffer.flip();
 
         }
 
@@ -98,11 +146,24 @@ public class JCUDAVecAdd { // REMOVE
             processCPU();
         }
 
+
         public InternalRow next() {
             holder.reset();
             rowWriter.zeroOutNullBytes();
+            System.out.println("Name ====== " + DirectCopy0[idx]);
             rowWriter.write(0,DirectCopy0[idx]);
+            System.out.println("before wring array --" + result.getUTF8String(0));
             rowWriter.write(1,GPU_Output0_Host[idx]);
+
+            int tmpCursor = holder.cursor;
+            arrayWriter.initialize(holder, madhuArray_numColumns, 1);
+            for(int j=0;j<madhuArray_numColumns;j++)
+                arrayWriter.write(j, buffer.getLong()*10);
+            rowWriter.setOffsetAndSize(2, tmpCursor, holder.cursor - tmpCursor);
+            rowWriter.alignToWords(holder.cursor - tmpCursor);
+
+
+
             result.setTotalSize(holder.totalSize());
             idx++;
             return (InternalRow) result;
@@ -127,9 +188,9 @@ public class JCUDAVecAdd { // REMOVE
             // Allocate and fill the host hostinput data
             for(int i=0; inpitr.hasNext();i++) {
                 InternalRow r = (InternalRow) inpitr.next();
-                GPU_Input0_Host[i] = r.getLong(0);
-                GPU_Input1_Host[i] = r.getLong(1);
-                DirectCopy0[i] = r.getUTF8String(2).clone();
+                GPU_Input0_Host[i] = r.getLong(1);
+                GPU_Input1_Host[i] = r.getLong(2);
+                DirectCopy0[i] = r.getUTF8String(3).clone();
                 numElements++;
             }
 

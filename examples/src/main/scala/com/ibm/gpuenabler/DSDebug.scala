@@ -10,11 +10,12 @@ import org.apache.spark.sql.gpuenabler._
  * Created by kmadhu on 15/3/16.
  */
 
-case class data(name:String, cnt1:Long,cnt2:Long,sum:Long)
 object DSDebug {
 
-  case class data(name : String, cnt1 : Long, cnt2 : Long, sum : Long);
-  case class data1(name: String,sum:Long);
+   case class data(name : String, cnt1 : Long, cnt2 : Long, sum : Long,arr:Array[Long]);
+   case class data1(name: String,sum:Long,arr:Array[Long]);
+  //case class data(name : String, cnt1 : Long, cnt2 : Long, sum : Long,arr:Array[Long]);
+  //case class data1(name: String,sum:Long);
 
   def main(args : Array[String]): Unit = {
 
@@ -28,7 +29,7 @@ object DSDebug {
 
     val ds = ss.read.json(Utils.homeDir + "GPUEnabler/examples/src/main/resources/data.json").as[data];
 
-    ds.mapGPU[data1]("mul").show()
+    ds.mapGPU[data1]("arrayTest").show()
 
   }
 
