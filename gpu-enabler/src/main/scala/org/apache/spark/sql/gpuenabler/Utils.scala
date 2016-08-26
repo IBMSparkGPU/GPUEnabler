@@ -65,8 +65,6 @@ case class MAPGPU[U:Encoder](func: CudaFunc, child: LogicalPlan,encoder : Encode
   override def maxRows: Option[Long] = child.maxRows
 }
 
-
-
 object GPUOperators extends Strategy {
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
     case MAPGPU(cf, child,encoder) =>
@@ -77,7 +75,7 @@ object GPUOperators extends Strategy {
   }
 }
 
-case class Args(val dtype:String, val name: String)
+case class Args(val length: String, val name : String)
 case class Func(val fname:String, val ptxPath: String)
 case class CudaFunc(val func: Func, val inputArgs : Array[Args], val outputArgs : Array[Args])
 
@@ -92,10 +90,10 @@ object Utils {
 
   def homeDir = System.getProperty("user.dir").split("GPUEnabler")(0)
 
-
   def init(ss : SparkSession, fname : String): Unit = {
     import ss.implicits._
     val c = ss.read.json(fname).as[CudaFunc]
+    c.show();
     c.foreach(x=>cudaFunc += x.func.fname -> x)
   }
 

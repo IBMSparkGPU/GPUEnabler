@@ -1,1 +1,1 @@
-{ "func":{ "fname":"arrayTest", "ptxPath":"/GpuEnablerExamples.ptx" }, "inputArgs":[ {"dtype":"long","name":"cnt1"}, {"dtype":"long","name":"cnt2"},{"dtype":"long","name":"arr"} ], "outputArgs":[ {"dtype":"long","name":"sum"} ] }
+{ "func":{ "fname":"arrayTest", "ptxPath":"/GpuEnablerExamples.ptx" }, "inputArgs":[ {"length":"1", "name":"factor"}, {"length":"1" ,"name":"arr"}], "outputArgs":[ {"length":"3","name":"result"} ] }

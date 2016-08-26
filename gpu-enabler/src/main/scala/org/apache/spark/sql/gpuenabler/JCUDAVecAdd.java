@@ -169,9 +169,10 @@ public class JCUDAVecAdd { // REMOVE
             return (InternalRow) result;
         }
 
-        public boolean hasNext() {	
-            if(!processed) execute();
-            return idx < numElements;
+        public boolean hasNext() {
+            return false;
+            //if(!processed) execute();
+            //return idx < numElements;
         }
 
         public void processGPU() {
@@ -241,6 +242,7 @@ public class JCUDAVecAdd { // REMOVE
             cuMemFree(deviceoutput0);
         }
     }
+
 
 
 } // REMOVE

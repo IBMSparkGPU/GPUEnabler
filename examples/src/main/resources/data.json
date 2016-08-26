@@ -1,4 +1,5 @@
-{ "name": "N1alsdjfa", "cnt1": 10 , "cnt2":100, "sum":0, "arr":[1,2,3]}
-{ "name": "N2alsdkfjasldfjasldkjfaslk", "cnt1": 30 , "cnt2":100, "sum":0, "arr":[1,2,3]}
-{ "name": "N3", "cnt1": 20 , "cnt2":100, "sum":0, "arr":[4,5,6]}
-{ "name": "N4alsdkjfasldjfalsdjfalsdjfalsjdflasjdflasjdflaskjdlfasj", "cnt1": 40 , "cnt2":100, "sum":0, "arr":[1,2,3]}
+{ "name": "ONE $", "factor": 5 ,  "arr":[1,2,3]}
+{ "name": "TWO $$", "factor": 10 ,  "arr":[4,5,6]}
+{ "name": "THREE $$$", "factor": 15 ,  "arr":[7,8,9]}
+{ "name": "FOUR $$$$", "factor": 20 ,  "arr":[1,2,3]}
+

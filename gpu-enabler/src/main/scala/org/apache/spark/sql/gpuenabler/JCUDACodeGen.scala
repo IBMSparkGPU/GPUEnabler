@@ -24,6 +24,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.types.{ArrayType, DataType, StringType, StructType}
 import java.io.{File, PrintWriter}
 
+import org.apache.spark.SparkEnv
+
 import scala.collection.mutable.ArrayBuffer
 
 /**
@@ -49,190 +51,207 @@ object JCUDACodeGen extends Logging {
                       dataType: DataType,
                       inSchemaIdx : Int,
                       outSchemaIdx : Int,
+                      length : Long,
                       ctx : CodegenContext) {
 
     //TODO use case class
 
-    val codeStmt = scala.collection.mutable.Map.empty[String,String]
+    if (is(GPUOUTPUT))
+      if (is(GPUINPUT)) assume(false, "A column cannot be in both GPUINPUT & GPUOUTPUT");
 
-    def is(t : Int) = ((varType & t) > 0)
+    if (is(GPUOUTPUT))
+      if (!is(RDDOUTPUT)) assume(false, "GPU OUTPUT column must be RDDOUT to get type details")
+
+    val codeStmt = scala.collection.mutable.Map.empty[String, String]
+
+    def is(t: Int) = ((varType & t) > 0)
+
     var boxType = ctx.boxedType(dataType);
     var javaType = ctx.javaType(dataType);
     var isArray = false;
-    var arrayType : DataType = _;
+    var arrayType: DataType = _;
+    var size = s"numElements * Sizeof.${javaType.toUpperCase()}"
+    var hostVariableName = ""
+    var deviceVariableName = ""
+
+    varType match {
+      case _ if is(GPUINPUT) => {
+        hostVariableName = s"gpuInputHost_$colName"
+        deviceVariableName = s"gpuInputDevice_$colName"
+      }
+      case _ if is(GPUOUTPUT) => {
+        hostVariableName = s"gpuOutputHost_$colName"
+        deviceVariableName = s"gpuOutputDevice_$colName"
+      }
+      case _ if is(RDDOUTPUT) => {
+        hostVariableName = s"directCopyHost_$colName"
+      }
+    }
 
     dataType match {
-      case ArrayType(d,_) =>
+      case ArrayType(d, _) =>
         isArray = true;
         arrayType = d;
         boxType = ctx.boxedType(d)
         javaType = ctx.javaType(d)
+        size = s"numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
       case _ =>
     }
-    var size = s"numElements * Sizeof.${javaType.toUpperCase()}"
 
-    varType match {
-      case _ if is(GPUINPUT) => {
-        val hostVariableName = s"gpuInputHost_$colName"
-        val deviceVariableName = s"gpuInputDevice_$colName"
-        if(isArray) size += s"* ${hostVariableName}_numCols"
-
-        codeStmt += "declareHost" ->
-          s"""
-             |private ByteBuffer ${hostVariableName};
-             |private MemoryPointer pinMemPtr_$colName;
-             |${if(isArray) s"private int ${hostVariableName}_numCols;" else ""}
+    codeStmt += "declareHost" -> {
+      if (is(GPUINPUT) || is(GPUOUTPUT)) {
+        s"""
+         |private ByteBuffer ${hostVariableName};
+         |private MemoryPointer pinMemPtr_$colName;
+         |${if(isArray) s"private int ${hostVariableName}_numCols;" else ""}
            """.stripMargin
-
-        codeStmt += "declareDevice" ->
-          s"private MemoryPointer ${deviceVariableName};\n"
-
-        codeStmt += "allocateHost" ->
-          s"""|pinMemPtr_$colName = new MemoryPointer();
-              |${if(isArray) s"${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements();" else ""}
-              |cuMemAllocHost(pinMemPtr_$colName, $size);
-              |$hostVariableName =
-              |     pinMemPtr_$colName.getByteBuffer(0,
-              |                $size).order(ByteOrder.LITTLE_ENDIAN);
-           """.stripMargin
-
-        codeStmt += "allocateDevice" ->
-          s"""|$deviceVariableName = new MemoryPointer();
-              |cuMemAlloc($deviceVariableName, $size);
-           """.stripMargin
-
-        codeStmt += "readFromInternalRow" -> {
-          if (isArray)
-            s"""
-             |$javaType tmp[] = r.getArray($inSchemaIdx).to${boxType}Array();
-             |for(int j = 0; j < gpuInputHost_arr_numCols; j ++)
-             |  ${hostVariableName}.put$boxType(tmp[j]);
-           """.stripMargin
-          else
-            s"${hostVariableName}.put$boxType(${ctx.getValue("r", dataType, inSchemaIdx.toString)});\n"
-          }
-
-        codeStmt += "flip" ->
-          s"${hostVariableName}.flip();\n"
-
-        codeStmt += "memcpyH2D" ->
-          s""" |  cuMemcpyHtoD($deviceVariableName,
-               |      Pointer.to($hostVariableName),
-               |      $size);
-               |      """.stripMargin
-
-        codeStmt += "kernel-param" ->
-          s",Pointer.to($deviceVariableName)\n"
-
-        // Device memory will be freed immediatly.
-        codeStmt += "FreeDeviceMemory" ->
-               s"""|cuMemFree($deviceVariableName);
-                   |${if(!is(RDDOUTPUT)) s"cuMemFreeHost(pinMemPtr_$colName);" else ""}
-                """.stripMargin
-
-        //Host Memory will be freed only after iterator completes.
-        if(is(RDDOUTPUT))
-          codeStmt += "FreeHostMemory" ->
-            s"cuMemFreeHost(pinMemPtr_$colName);"
-
-        if (is(RDDOUTPUT)) {
-          codeStmt += "writeToInternalRow" -> {
-            if(isArray)
-              s"""
-                 |int tmpCursor = holder.cursor;
-                 |arrayWriter.initialize(holder,${hostVariableName}_numCols,4);
-                 |for(int j=0;j<${hostVariableName}_numCols;j++)
-                 |  arrayWriter.write(j, ${hostVariableName}.get$boxType()*10);
-                 |rowWriter.setOffsetAndSize(${outSchemaIdx}, tmpCursor, holder.cursor - tmpCursor);
-                 |rowWriter.alignToWords(holder.cursor - tmpCursor);
-             """.stripMargin
-            else
-              s"rowWriter.write(${outSchemaIdx},${hostVariableName}.get$boxType(idx));\n"
-          }
-        }
       }
-      case _ if is(GPUOUTPUT) => {
-        val hostVariableName = s"gpuOutputHost_$colName"
-        val deviceVariableName = s"gpuOutputDevice_$colName"
-
-        codeStmt += "declareHost" ->
+      else {
+        if (isArray)
           s"""
-             |private ByteBuffer ${hostVariableName};
-             |private MemoryPointer pinMemPtr_$colName;
+            |private $javaType ${hostVariableName}[][];
+            |private int ${hostVariableName}_numCols;
            """.stripMargin
+        else
+          s"private $javaType ${hostVariableName}[];\n"
+      }
+    }
 
-        codeStmt += "declareDevice" ->
-          s"private MemoryPointer ${deviceVariableName};\n"
+    codeStmt += "declareDevice" -> {
+      if (is(GPUINPUT) || is(GPUOUTPUT))
+        s"private MemoryPointer ${deviceVariableName};\n"
+      else
+        ""
+    }
 
-        codeStmt += "allocateHost" ->
-          s"""|pinMemPtr_$colName = new MemoryPointer();
-              |cuMemAllocHost(pinMemPtr_$colName, $size);
-              |${hostVariableName} =
-              |     pinMemPtr_$colName.getByteBuffer(0,
-              |                $size).order(ByteOrder.LITTLE_ENDIAN);
+    codeStmt += "allocateHost" -> {
+      if(is(GPUINPUT) || is(GPUOUTPUT))
+        s"""|pinMemPtr_$colName = new MemoryPointer();
+            |${
+               if (isArray) {
+                 if(is(GPUINPUT))
+                 s"${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements();"
+                 else
+                 s"${hostVariableName}_numCols = $length;"
+               }
+               else ""
+            }
+            |cuMemAllocHost(pinMemPtr_$colName, $size );
+            |$hostVariableName = pinMemPtr_$colName.getByteBuffer(0,$size).
+            |                  order(ByteOrder.LITTLE_ENDIAN);
            """.stripMargin
+      else
+      if (isArray)
+        s"""
+           |${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements();
+           |$hostVariableName = new $javaType[numElements][${hostVariableName}_numCols];
+             """.stripMargin
+      else
+        s"$hostVariableName = new $javaType[numElements];\n"
+    }
 
-        codeStmt += "allocateDevice" ->
-          s"""|$deviceVariableName = new MemoryPointer();
-             |cuMemAlloc($deviceVariableName, $size);
+    codeStmt += "allocateDevice" -> {
+      if (is(GPUINPUT) || is(GPUOUTPUT))
+        s"""|$deviceVariableName = new MemoryPointer();
+            |cuMemAlloc($deviceVariableName, $size);
            """.stripMargin
+      else
+       ""
+    }
 
-        codeStmt += "memcpyD2H" ->
-          s"cuMemcpyDtoH(Pointer.to(${hostVariableName}), $deviceVariableName, $size);\n"
+    codeStmt += "readFromInternalRow" -> {
+      if (is(GPUINPUT)) {
+        if (isArray)
+          s"""
+           |$javaType tmp[] = r.getArray($inSchemaIdx).to${boxType}Array();
+           |for(int j = 0; j < gpuInputHost_arr_numCols; j ++)
+           |  ${hostVariableName}.put$boxType(tmp[j]);
+        """.stripMargin
+        else
+          s"${hostVariableName}.put$boxType(${ctx.getValue("r", dataType, inSchemaIdx.toString)});\n"
+      }
+      else if(is(GPUOUTPUT))
+        ""
+      else {
+        dataType match {
+        case StringType =>
+          s"$hostVariableName[i] = ${ctx.getValue("r", dataType, inSchemaIdx.toString)}.clone();\n"
+        case ArrayType(d,_) =>
+          s""" | $javaType tmp[] = r.getArray($inSchemaIdx).to${boxType}Array();
+               | for(int j=0; j<${hostVariableName}_numCols;j++)
+               |    ${hostVariableName}[i][j] = tmp[j];
+          """.stripMargin
+        case _ =>
+          s"${hostVariableName}[i] = ${ctx.getValue("r", dataType, inSchemaIdx.toString)};\n"
+      }
+    }
+  }
 
-        codeStmt += "kernel-param" -> s",Pointer.to($deviceVariableName)\n"
+    codeStmt += "flip" -> {
+      if(is(GPUINPUT))
+        s"${hostVariableName}.flip();\n"
+      else
+        ""
+    }
 
-        if (is(RDDOUTPUT))
-          codeStmt += "writeToInternalRow" ->
+    codeStmt += "memcpyH2D" ->{
+      if(is(GPUINPUT))
+        s"""|  cuMemcpyHtoD($deviceVariableName,
+            |      Pointer.to($hostVariableName),
+            |      $size);
+        """.stripMargin
+      else
+        ""
+    }
+
+    codeStmt += "kernel-param" -> {
+      if(is(GPUINPUT) || is(GPUOUTPUT))
+        s",Pointer.to($deviceVariableName)\n"
+      else
+        ""
+    }
+
+    codeStmt += "memcpyD2H" -> {
+      if(is(GPUOUTPUT))
+        s"cuMemcpyDtoH(Pointer.to(${hostVariableName}), $deviceVariableName, $size);\n"
+      else
+        ""
+    }
+
+    // Device memory will be freed immediatly.
+    codeStmt += "FreeDeviceMemory" -> {
+      if(is(GPUINPUT) || is(GPUOUTPUT))
+        s"""|cuMemFree($deviceVariableName);
+         """.stripMargin
+      else
+        ""
+    }
+
+    //Host Memory will be freed only after iterator completes.
+    codeStmt += "FreeHostMemory" -> {
+      if (is(GPUINPUT) || is(GPUOUTPUT))
+        s"cuMemFreeHost(pinMemPtr_$colName);\n"
+      else
+        ""
+    }
+
+    codeStmt += "writeToInternalRow" -> {
+      if(is(RDDOUTPUT)) {
+
+        if(is(GPUINPUT) || is(GPUOUTPUT)) {
+          if(isArray)
+            s"""
+               |int tmpCursor = holder.cursor;
+               |arrayWriter.initialize(holder,${hostVariableName}_numCols,4);
+               |for(int j=0;j<${hostVariableName}_numCols;j++)
+               |  arrayWriter.write(j, ${hostVariableName}.get$boxType());
+               |rowWriter.setOffsetAndSize(${outSchemaIdx}, tmpCursor, holder.cursor - tmpCursor);
+               |rowWriter.alignToWords(holder.cursor - tmpCursor);
+            """.stripMargin
+          else
             s"rowWriter.write(${outSchemaIdx},${hostVariableName}.get$boxType());\n"
-
-        codeStmt += "FreeDeviceMemory" ->
-          s"cuMemFree($deviceVariableName);\n"
-
-        codeStmt += "FreeHostMemory" ->
-          s"cuMemFreeHost(pinMemPtr_$colName);\n"
-      }
-      case _ if is(RDDOUTPUT) => {
-        val hostVariableName = s"directCopyHost_$colName"
-
-        codeStmt += "declareHost" -> {
-              if (isArray)
-                s"""
-                   |private $javaType ${hostVariableName}[][];
-                   |private int ${hostVariableName}_numCols;
-                 """.stripMargin
-              else
-                s"private $javaType ${hostVariableName}[];\n"
-          }
-
-        codeStmt += "declareDevice" ->
-          ""
-        codeStmt += "allocateHost" -> {
-          if (isArray)
-            s"""
-               |${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements();
-               |$hostVariableName = new $javaType[numElements][${hostVariableName}_numCols];
-             """.stripMargin
-          else
-            s"$hostVariableName = new $javaType[numElements];\n"
         }
-
-        codeStmt += "readFromInternalRow" -> {
-          dataType match {
-            case StringType =>
-              s"$hostVariableName[i] = ${ctx.getValue("r", dataType, inSchemaIdx.toString)}.clone();\n"
-            case ArrayType(d,_) =>
-              s"""
-                | $javaType tmp[] = r.getArray($inSchemaIdx).to${boxType}Array();
-                | for(int j=0; j<${hostVariableName}_numCols;j++)
-                |    ${hostVariableName}[i][j] = tmp[j];
-              """.stripMargin
-            case _ =>
-              s"${hostVariableName}[i] = ${ctx.getValue("r", dataType, inSchemaIdx.toString)};\n"
-          }
-        }
-
-        codeStmt += "writeToInternalRow" -> {
+        else {
           dataType match {
             case ArrayType(d, _) =>
               s"""
@@ -248,9 +267,10 @@ object JCUDACodeGen extends Logging {
           }
         }
       }
+      else ""
     }
-
   }
+
 
   def createVariables(inputSchema : StructType, outputSchema : StructType,
                cf : CudaFunc, ctx : CodegenContext) = {
@@ -270,6 +290,7 @@ object JCUDACodeGen extends Logging {
           inputSchema(inIdx).dataType,
           inIdx,
           outIdx,
+          x.length.toLong,
           ctx
         )
       }
@@ -287,6 +308,7 @@ object JCUDACodeGen extends Logging {
           outputSchema(outIdx).dataType,
           -1,
           outIdx,
+          x.length.toLong,
           ctx)
       }
     }
@@ -302,6 +324,7 @@ object JCUDACodeGen extends Logging {
             x.dataType,
             findSchemaIndex(inputSchema,x.name),
             findSchemaIndex(outputSchema,x.name),
+            -1,
             ctx
           )
 
@@ -329,6 +352,12 @@ object JCUDACodeGen extends Logging {
     val ctx = new CodegenContext()
 
     val variables = createVariables(inputSchema,outputSchema,cf,ctx)
+    val debugMode = !SparkEnv.get.conf.get("DebugMode","").isEmpty
+    if(debugMode)
+      println("Compile Existing File - DebugMode");
+    else
+      println("Generate Code")
+
 
 
     val codeBody =
@@ -483,44 +512,43 @@ object JCUDACodeGen extends Logging {
         |} // REMOVE
       """.stripMargin
 
+    val fpath = s"${Utils.homeDir}GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/GeneratedCode_${cf.func.fname}.java"
+
     def writeToFile(codeBody : String): Unit = {
       val code = new CodeAndComment(codeBody,ctx.getPlaceHolderToComments())
-      val fpath = s"${Utils.homeDir}GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/GeneratedCode_${cf.func.fname}.java"
       val pw = new PrintWriter(new File(fpath))
       pw.write(CodeFormatter.format(code))
       pw.close
-      println(CodeFormatter.format(code))
+      // println(CodeFormatter.format(code))
       println("The generated file path = " + fpath)
 
     }
 
 
-//    return generateFromFile
-
-    //return new GeneratedCode_template().generate()
-
-    writeToFile(codeBody)
-
-    val code = codeBody.split("\n").filter(!_.contains("REMOVE")).map(_ + "\n").mkString
-    val p = CodeGenerator.compile(new CodeAndComment(code, ctx.getPlaceHolderToComments())).
-      generate(ctx.references.toArray).asInstanceOf[JCUDAInterface]
-
-
-    if(Utils.homeDir.contains("madhusudanan"))
-      //return generateFromFile
-      return new JCUDAVecAdd().generate()
+    if(debugMode)
+      return generateFromFile(fpath)
     else {
-      return p;
+      writeToFile(codeBody)
+
+      val code = codeBody.split("\n").filter(!_.contains("REMOVE")).map(_ + "\n").mkString
+      val p = CodeGenerator.compile(new CodeAndComment(code, ctx.getPlaceHolderToComments())).
+        generate(ctx.references.toArray).asInstanceOf[JCUDAInterface]
+
+      if (Utils.homeDir.contains("madhusudanan"))
+        return new JCUDAVecAdd().generate()
+      else {
+        return p;
+      }
     }
 
 
   }
 
-  def generateFromFile : JCUDAInterface = {
+  def generateFromFile(fpath : String) : JCUDAInterface = {
 
     val ctx = new CodegenContext()
 
-    val c = scala.io.Source.fromFile(s"${Utils.homeDir}/GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/GeneratedCode_template.java").getLines()
+    val c = scala.io.Source.fromFile(fpath).getLines()
     val codeBody = c.filter(x=> (!(x.contains("REMOVE")))).map(x => x+"\n").mkString
 
     val code = CodeFormatter.stripOverlappingComments(
