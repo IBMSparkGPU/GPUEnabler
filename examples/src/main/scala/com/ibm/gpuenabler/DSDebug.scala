@@ -31,12 +31,9 @@ object DSDebug {
       SparkEnv.get.conf.set("DebugMode", args(0))
     }
 
-
     Utils.init(ss,Utils.homeDir +"GPUEnabler/examples/src/main/resources/GPUFuncs.json")
-
     val ds = ss.read.json(Utils.homeDir + "GPUEnabler/examples/src/main/resources/data.json").as[data];
-
-    ds.mapGPU[data1]("arrayTest").show()
+    ds.mapGPU[data1]("arrayTest",(1 to 10).map(_ * 3).toArray, (1 to 35).map(_.toLong).toArray).show()
 
   }
 

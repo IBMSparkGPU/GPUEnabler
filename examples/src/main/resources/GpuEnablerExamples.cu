@@ -75,11 +75,13 @@ __global__ void mul(int n, long *a, long *b, long *sum)
 }
 
 extern "C"
-__global__ void arrayTest(int n, long *factor, long *arr,long *result)
+__global__ void arrayTest(int n, long *factor, long *arr,int *const_arr1, long *const_arr2,long *result)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if(i == 0) {
        printf("In ArrayTest n=%d factor=%p arr=%p result=%p \n",n,factor,arr,result);
+       printf("In const %d %d %d\n",const_arr1[0],const_arr1[1],const_arr1[2]);
+       printf("In const %ld %ld %ld\n",const_arr2[0],const_arr2[1],const_arr2[2]);
     }
 
     if (i<n)

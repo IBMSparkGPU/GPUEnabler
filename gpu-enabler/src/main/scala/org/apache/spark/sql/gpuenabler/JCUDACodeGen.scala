@@ -21,9 +21,10 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen._
-import org.apache.spark.sql.types.{ArrayType, DataType, StringType, StructType}
+import org.apache.spark.sql.types._
 import java.io.{File, PrintWriter}
 
+import jcuda.Pointer
 import org.apache.spark.SparkEnv
 
 import scala.collection.mutable.ArrayBuffer
@@ -34,7 +35,7 @@ import scala.collection.mutable.ArrayBuffer
 abstract class JCUDAInterface {
   def hasNext() : Boolean
   def next() : InternalRow
-  def init(itr : java.util.Iterator[InternalRow], size : Int)
+  def init(itr : java.util.Iterator[InternalRow], args: Array[AnyRef],size : Int)
 }
 
 /**
@@ -45,6 +46,7 @@ object JCUDACodeGen extends Logging {
   val GPUINPUT  = 1
   val GPUOUTPUT = 2
   val RDDOUTPUT = 4
+  val CONST     = 8
 
   case class Variable(colName:String,
                       varType : Int,
@@ -66,16 +68,18 @@ object JCUDACodeGen extends Logging {
 
     def is(t: Int) = ((varType & t) > 0)
 
+
+
     var boxType = ctx.boxedType(dataType);
     var javaType = ctx.javaType(dataType);
     var isArray = false;
     var arrayType: DataType = _;
-    var size = s"numElements * Sizeof.${javaType.toUpperCase()}"
+    var size = ""
     var hostVariableName = ""
     var deviceVariableName = ""
 
     varType match {
-      case _ if is(GPUINPUT) => {
+      case _ if is(GPUINPUT) || is(CONST) => {
         hostVariableName = s"gpuInputHost_$colName"
         deviceVariableName = s"gpuInputDevice_$colName"
       }
@@ -88,6 +92,11 @@ object JCUDACodeGen extends Logging {
       }
     }
 
+    if(is(CONST))
+      size = s"$length * Sizeof.${javaType.toUpperCase()}"
+    else
+      size = s"numElements * Sizeof.${javaType.toUpperCase()}"
+
     dataType match {
       case ArrayType(d, _) =>
         isArray = true;
@@ -98,15 +107,17 @@ object JCUDACodeGen extends Logging {
       case _ =>
     }
 
+    if(boxType.eq("Integer")) boxType = "Int"
+
     codeStmt += "declareHost" -> {
-      if (is(GPUINPUT) || is(GPUOUTPUT)) {
+      if (is(GPUINPUT) || is(GPUOUTPUT) || is(CONST)) {
         s"""
          |private ByteBuffer ${hostVariableName};
          |private MemoryPointer pinMemPtr_$colName;
          |${if(isArray) s"private int ${hostVariableName}_numCols;" else ""}
            """.stripMargin
       }
-      else {
+      else if (is(RDDOUTPUT)){
         if (isArray)
           s"""
             |private $javaType ${hostVariableName}[][];
@@ -115,17 +126,18 @@ object JCUDACodeGen extends Logging {
         else
           s"private $javaType ${hostVariableName}[];\n"
       }
+      else ""
     }
 
     codeStmt += "declareDevice" -> {
-      if (is(GPUINPUT) || is(GPUOUTPUT))
+      if (is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
         s"private MemoryPointer ${deviceVariableName};\n"
       else
         ""
     }
 
     codeStmt += "allocateHost" -> {
-      if(is(GPUINPUT) || is(GPUOUTPUT))
+      if(is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
         s"""|pinMemPtr_$colName = new MemoryPointer();
             |${
                if (isArray) {
@@ -140,18 +152,21 @@ object JCUDACodeGen extends Logging {
             |$hostVariableName = pinMemPtr_$colName.getByteBuffer(0,$size).
             |                  order(ByteOrder.LITTLE_ENDIAN);
            """.stripMargin
-      else
-      if (isArray)
-        s"""
+      else if(is(RDDOUTPUT)) {
+        if (isArray)
+          s"""
            |${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements();
            |$hostVariableName = new $javaType[numElements][${hostVariableName}_numCols];
-             """.stripMargin
+           |""".stripMargin
+        else
+          s"$hostVariableName = new $javaType[numElements];\n"
+      }
       else
-        s"$hostVariableName = new $javaType[numElements];\n"
+        ""
     }
 
     codeStmt += "allocateDevice" -> {
-      if (is(GPUINPUT) || is(GPUOUTPUT))
+      if (is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
         s"""|$deviceVariableName = new MemoryPointer();
             |cuMemAlloc($deviceVariableName, $size);
            """.stripMargin
@@ -172,7 +187,7 @@ object JCUDACodeGen extends Logging {
       }
       else if(is(GPUOUTPUT))
         ""
-      else {
+      else if(is(RDDOUTPUT)) {
         dataType match {
         case StringType =>
           s"$hostVariableName[i] = ${ctx.getValue("r", dataType, inSchemaIdx.toString)}.clone();\n"
@@ -183,19 +198,33 @@ object JCUDACodeGen extends Logging {
           """.stripMargin
         case _ =>
           s"${hostVariableName}[i] = ${ctx.getValue("r", dataType, inSchemaIdx.toString)};\n"
+        }
       }
+      else
+        ""
     }
-  }
+    codeStmt += "readFromConstArray" -> {
+      if(is(CONST)) {
+        s"""
+         | for(int i = 0; i<$length; i++ ) {
+         |  $hostVariableName.put$boxType((($javaType[])refs[$colName])[i]);
+         | }
+       """.stripMargin
+        }
+      else
+        ""
+    }
+
 
     codeStmt += "flip" -> {
-      if(is(GPUINPUT))
+      if(is(GPUINPUT) || is(CONST))
         s"${hostVariableName}.flip();\n"
       else
         ""
     }
 
     codeStmt += "memcpyH2D" ->{
-      if(is(GPUINPUT))
+      if(is(GPUINPUT) || is(CONST))
         s"""|  cuMemcpyHtoD($deviceVariableName,
             |      Pointer.to($hostVariableName),
             |      $size);
@@ -205,7 +234,7 @@ object JCUDACodeGen extends Logging {
     }
 
     codeStmt += "kernel-param" -> {
-      if(is(GPUINPUT) || is(GPUOUTPUT))
+      if(is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
         s",Pointer.to($deviceVariableName)\n"
       else
         ""
@@ -220,7 +249,7 @@ object JCUDACodeGen extends Logging {
 
     // Device memory will be freed immediatly.
     codeStmt += "FreeDeviceMemory" -> {
-      if(is(GPUINPUT) || is(GPUOUTPUT))
+      if(is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
         s"""|cuMemFree($deviceVariableName);
          """.stripMargin
       else
@@ -229,7 +258,7 @@ object JCUDACodeGen extends Logging {
 
     //Host Memory will be freed only after iterator completes.
     codeStmt += "FreeHostMemory" -> {
-      if (is(GPUINPUT) || is(GPUOUTPUT))
+      if (is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
         s"cuMemFreeHost(pinMemPtr_$colName);\n"
       else
         ""
@@ -237,7 +266,6 @@ object JCUDACodeGen extends Logging {
 
     codeStmt += "writeToInternalRow" -> {
       if(is(RDDOUTPUT)) {
-
         if(is(GPUINPUT) || is(GPUOUTPUT)) {
           if(isArray)
             s"""
@@ -271,9 +299,8 @@ object JCUDACodeGen extends Logging {
     }
   }
 
-
   def createVariables(inputSchema : StructType, outputSchema : StructType,
-               cf : CudaFunc, ctx : CodegenContext) = {
+               cf : CudaFunc, args : Array[AnyRef], ctx : CodegenContext) = {
     // columns to be copied from inputRow to outputRow without gpu computation.
     val variables = ArrayBuffer.empty[Variable]
 
@@ -293,6 +320,28 @@ object JCUDACodeGen extends Logging {
           x.length.toLong,
           ctx
         )
+      }
+    }
+
+    var cnt = 0
+    args.foreach {
+      x => {
+        val dtype =
+          x match {
+            case y: Array[Long] => {(LongType,y.length)}
+            case y: Array[Int] =>  {(IntegerType,y.length)}
+            case y: Array[Char] => {(ByteType,y.length)}
+          }
+
+        variables += Variable (cnt.toString(),
+          CONST,
+          dtype._1,
+          -1,
+          -1,
+          dtype._2,
+          ctx
+        )
+        cnt += 1
       }
     }
 
@@ -330,6 +379,8 @@ object JCUDACodeGen extends Logging {
 
         }
     }
+
+
     variables.toArray
   }
 
@@ -345,20 +396,17 @@ object JCUDACodeGen extends Logging {
     codeBody.dropRight(1).toString()
   }
 
-
   def generate(inputSchema : StructType, outputSchema : StructType,
-                   cf : CudaFunc) : JCUDAInterface = {
+                   cf : CudaFunc, args: Array[AnyRef]) : JCUDAInterface = {
 
     val ctx = new CodegenContext()
 
-    val variables = createVariables(inputSchema,outputSchema,cf,ctx)
+    val variables = createVariables(inputSchema,outputSchema,cf,args,ctx)
     val debugMode = !SparkEnv.get.conf.get("DebugMode","").isEmpty
     if(debugMode)
       println("Compile Existing File - DebugMode");
     else
       println("Generate Code")
-
-
 
     val codeBody =
       s"""
@@ -413,6 +461,7 @@ object JCUDACodeGen extends Logging {
         |        private boolean freeMemory = true;
         |        private int idx = 0;
         |        private int numElements = 0;
+        |        private Object refs[];
         |
         |        ${getStmt(variables,List("declareHost","declareDevice"),"\n")}
         |
@@ -424,9 +473,10 @@ object JCUDACodeGen extends Logging {
         |        arrayWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeArrayWriter();
         |    }
         |
-        |    public void init(Iterator<InternalRow> inp, int size) {
+        |    public void init(Iterator<InternalRow> inp, Object inprefs[], int size) {
         |        inpitr = inp;
         |        numElements = size;
+        |        refs = inprefs;
         |    }
         |
         |    public boolean hasNext() {
@@ -469,6 +519,8 @@ object JCUDACodeGen extends Logging {
         |          if (i == 0)  allocateMemory(r);
         |          ${getStmt(variables,List("readFromInternalRow"),"")}
         |       }
+        |
+        |      ${getStmt(variables,List("readFromConstArray"),"")}
         |
         |       // Flip buffer for read
         |       ${getStmt(variables,List("flip"),"")}
@@ -524,7 +576,6 @@ object JCUDACodeGen extends Logging {
 
     }
 
-
     if(debugMode)
       return generateFromFile(fpath)
     else {
@@ -540,8 +591,6 @@ object JCUDACodeGen extends Logging {
         return p;
       }
     }
-
-
   }
 
   def generateFromFile(fpath : String) : JCUDAInterface = {

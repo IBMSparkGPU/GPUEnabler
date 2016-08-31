@@ -77,7 +77,7 @@ public class JCUDAVecAdd { // REMOVE
             this.rowWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, 3);
         }
 
-        public void init(Iterator<InternalRow> inp, int size) {
+        public void init(Iterator<InternalRow> inp, Object ref[], int size) {
             inpitr = inp;
             numElements = size;
         }

@@ -19,7 +19,7 @@ import scala.collection.mutable
   * Created by madhusudanan on 26/07/16.
   */
 
-case class MAPGPUExec[U](cf: CudaFunc, child: SparkPlan,encoder : Encoder[U])
+case class MAPGPUExec[U](cf: CudaFunc, args : Array[AnyRef], child: SparkPlan,encoder : Encoder[U])
   extends UnaryExecNode {
 
   lazy val inputSchema = child.schema
@@ -40,10 +40,10 @@ case class MAPGPUExec[U](cf: CudaFunc, child: SparkPlan,encoder : Encoder[U])
 
     childRDD.mapPartitionsWithIndex { (index, iter) =>
 
-      val buffer = JCUDACodeGen.generate(inputSchema,outputSchema,cf)
+      val buffer = JCUDACodeGen.generate(inputSchema,outputSchema,cf,args)
       val list = new mutable.ListBuffer[InternalRow]
       iter.foreach(x => list += x.copy())
-      buffer.init(list.toIterator.asJava,list.size)
+      buffer.init(list.toIterator.asJava,args,list.size)
       new Iterator[InternalRow] {
         override def hasNext: Boolean = {
           buffer.hasNext
@@ -54,7 +54,7 @@ case class MAPGPUExec[U](cf: CudaFunc, child: SparkPlan,encoder : Encoder[U])
   }
 }
 
-case class MAPGPU[U:Encoder](func: CudaFunc, child: LogicalPlan,encoder : Encoder[U])
+case class MAPGPU[U:Encoder](func: CudaFunc, args : Array[AnyRef], child: LogicalPlan,encoder : Encoder[U])
   extends UnaryNode {
 
   // Schema is same
@@ -67,8 +67,8 @@ case class MAPGPU[U:Encoder](func: CudaFunc, child: LogicalPlan,encoder : Encode
 
 object GPUOperators extends Strategy {
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-    case MAPGPU(cf, child,encoder) =>
-      MAPGPUExec(cf, planLater(child),encoder) :: Nil
+    case MAPGPU(cf, args, child,encoder) =>
+      MAPGPUExec(cf, args, planLater(child),encoder) :: Nil
     case _ => {
       Nil
     }
@@ -100,23 +100,15 @@ object Utils {
   implicit class tempClass[T: Encoder](ds: Dataset[T]) {
 
 
-    def mapGPU[U:Encoder](inp: String): Dataset[U] =  {
+    def mapGPU[U:Encoder](inp: String, args: AnyRef*): Dataset[U] =  {
       val cf = cudaFunc(inp)
       val encoder = implicitly[Encoder[U]]
-      Dataset[U](ds.sparkSession, MAPGPU[U](cf, ds.logicalPlan,encoder))
+      Dataset[U](ds.sparkSession, MAPGPU[U](cf, args.toArray, ds.logicalPlan,encoder))
     }
 
     ds.sparkSession.experimental.extraStrategies =
       (GPUOperators :: Nil)
 
-/*    def changeType[U : Encoder](inp : String): Dataset[U] = {
-      //val deserialized = CatalystSerde.deserialize[T](ds.logicalPlan)
-      val mapped = MAPGPU(
-        inp,
-        ds.logicalPlan)
-      CatalystSerde.serialize[U](mapped)
-      Dataset[U](ds.sparkSession, MAPGPU("hi",ds.logicalPlan))
-    }*/
   }
 
 }
