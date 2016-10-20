@@ -8,7 +8,7 @@
   </parent>
 
   <groupId>com.ibm</groupId>
-  <artifactId>gpu-enabler_2.10</artifactId>
+  <artifactId>gpu-enabler_${scala.binary.version}</artifactId>
   <version>1.0.0</version>
   <inceptionYear>2016</inceptionYear>
   <packaging>jar</packaging>
