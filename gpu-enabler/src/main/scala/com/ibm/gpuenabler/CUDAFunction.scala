@@ -392,7 +392,7 @@ class CUDAFunction(
 
       case None =>
         val kernelParameters = Pointer.to(kp: _*)
-        // Start the GPU execution with the populated kernel paramters
+        // Start the GPU execution with the populated kernel parameters
         launchKernel(function, inputHyIter.numElements, kernelParameters, dimensions, 1, cuStream)
 
       // launch kernel multiple times (multiple stages), suitable for reduce
@@ -422,7 +422,7 @@ class CUDAFunction(
           // val kernelParameters = Pointer.to(params: _*)
           val kernelParameters = Pointer.to(kp: _*)
 
-          // Start the GPU execution with the populated kernel paramters
+          // Start the GPU execution with the populated kernel parameters
           launchKernel(function, inputHyIter.numElements, kernelParameters, dimensions, stageNumber, cuStream)
         }
     }

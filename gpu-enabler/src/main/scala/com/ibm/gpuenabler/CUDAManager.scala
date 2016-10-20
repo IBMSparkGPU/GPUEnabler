@@ -75,7 +75,7 @@ private[gpuenabler] class CUDAManager {
       // Since multiple modules cannot be loaded into one context in runtime API,
       //   we use singleton cache http://stackoverflow.com/questions/32502375/
       //   loading-multiple-modules-in-jcuda-is-not-working
-      // TODO support loading multple ptxs
+      // TODO support loading multiple ptxs
       //   http://stackoverflow.com/questions/32535828/jit-in-jcuda-loading-multiple-ptx-modules
       CUDAManagerCachedModule.getInstance.getOrElseUpdate((key, devIx(0)), {
     // println(" MODULE LOAD ")
