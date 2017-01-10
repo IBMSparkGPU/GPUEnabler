@@ -58,7 +58,7 @@ private[gpuenabler] object GPUKeyManager {
   * An RDD that applies the provided CUDA kernel to every partition of the parent RDD.
   *
   * @param prev previous RDD reference
-  * @param f  lamdba to be executed on each element of this RDD
+  * @param f  lambda to be executed on each element of this RDD
   * @param kernel holds the External function which points to the GPU native
   *               function name and the GPU kernel associated with it
   * @param preservesPartitioning Default `true` to preserve the partitioning
