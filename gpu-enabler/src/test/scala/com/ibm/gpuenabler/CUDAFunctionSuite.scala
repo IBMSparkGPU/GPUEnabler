@@ -669,10 +669,10 @@ class CUDAFunctionSuite extends FunSuite {
 
       val n: Long = 100000000L
       try {
-        val output = sc.parallelize(1L to n, 64)
+        val output: Long = sc.parallelize(1L to n, 64)
           .mapExtFunc((x: Long) => 2 * x, mapFunction)
           .reduceExtFunc((x: Long, y: Long) => x + y, reduceFunction)
-        assert(output == n * (n + 1))
+        assert(output == n * (n + 1L))
       } finally { 
         sc.stop
       }
