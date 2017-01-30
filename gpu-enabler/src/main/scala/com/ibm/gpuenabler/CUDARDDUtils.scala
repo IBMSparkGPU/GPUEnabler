@@ -85,31 +85,35 @@ private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
   private val outputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[U]
 
   override def compute(split: Partition, context: TaskContext): Iterator[U] = {
-    // Use the block ID of this particular (rdd, partition)
-    val blockId = RDDBlockId(this.id, split.index)
+    if (GPUSparkEnv.get.isGPUEnabled) {
+      // Use the block ID of this particular (rdd, partition)
+      val blockId = RDDBlockId(this.id, split.index)
 
-    // Handle empty partitions.
-    if (firstParent[T].iterator(split, context).length <= 0) 
-      return new Array[U](0).toIterator
+      // Handle empty partitions.
+      if (firstParent[T].iterator(split, context).length <= 0)
+        return new Array[U](0).toIterator
 
-    val inputHyIter = firstParent[T].iterator(split, context) match {
-      case hyIter: HybridIterator[T] => {
-       hyIter
+      val inputHyIter = firstParent[T].iterator(split, context) match {
+        case hyIter: HybridIterator[T] => {
+          hyIter
+        }
+        case iter: Iterator[T] => {
+          // println("Converting Regular Iterator to hybridIterator")
+          val parentBlockId = RDDBlockId(firstParent[T].id, split.index)
+          val hyIter = new HybridIterator[T](iter.toArray, inputColSchema,
+            kernel.inputColumnsOrder, Some(parentBlockId))
+          hyIter
+        }
       }
-      case iter: Iterator[T] => {
-        // println("Converting Regular Iterator to hybridIterator")
-        val parentBlockId = RDDBlockId(firstParent[T].id, split.index)
-        val hyIter = new HybridIterator[T](iter.toArray, inputColSchema,
-          kernel.inputColumnsOrder, Some(parentBlockId))
-        hyIter
-      }
+
+      val resultIter = kernel.compute[U, T](inputHyIter,
+        Seq(inputColSchema, outputColSchema), None,
+        outputArraySizes, inputFreeVariables, Some(blockId))
+
+      resultIter
+    } else {
+      f(context, split.index, firstParent[T].iterator(split, context))
     }
-
-    val resultIter = kernel.compute[U, T](inputHyIter,
-      Seq(inputColSchema, outputColSchema), None,
-      outputArraySizes, inputFreeVariables, Some(blockId))
-
-    resultIter
   }
 }
 
@@ -315,25 +319,39 @@ object CUDARDDImplicits {
 
       val cleanF = CUDAUtils.cleanFn(sc, f) // sc.clean(f)
 
-      val inputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
-      val outputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
+      val reducePartition: (TaskContext, Iterator[T]) => Option[T] = (ctx: TaskContext, data: Iterator[T]) =>  {
+        if (GPUSparkEnv.get.isGPUEnabled) {
+          val inputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
+          val outputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
 
-      val reducePartition: (TaskContext, Iterator[T]) => Option[T] =
-        (ctx: TaskContext, data: Iterator[T]) => {
-            data match {
-              case col: HybridIterator[T] =>
-                if (col.numElements != 0) {
-                  val colIter = extfunc.compute[T, T](col, Seq(inputColSchema, outputColSchema),
-                    Some(1), outputArraySizes,
-                    inputFreeVariables, None).asInstanceOf[HybridIterator[T]]
-                  Some(colIter.next)
-                } else {
-                  None
-                }
-              // Handle partitions with no data
-              case _ => None
-            }
+          data match {
+            case col: HybridIterator[T] =>
+              if (col.numElements != 0) {
+                val colIter = extfunc.compute[T, T](col, Seq(inputColSchema, outputColSchema),
+                  Some(1), outputArraySizes,
+                  inputFreeVariables, None).asInstanceOf[HybridIterator[T]]
+                Some(colIter.next)
+              } else {
+                None
+              }
+            // Handle partitions with no data
+            case _ =>
+              if (data.hasNext) {
+                Some(data.reduceLeft(cleanF))
+              }
+              else {
+                None
+              }
+          }
+        } else {
+          if (data.hasNext) {
+            Some(data.reduceLeft(cleanF))
+          }
+          else {
+            None
+          }
         }
+      }
 
       var jobResult: Option[T] = None
       val mergeResult = (index: Int, taskResult: Option[T]) => {
@@ -344,6 +362,7 @@ object CUDARDDImplicits {
           }
         }
       }
+
       sc.runJob(rdd, reducePartition, 0 until rdd.partitions.length, mergeResult)
       jobResult.getOrElse(throw new UnsupportedOperationException("empty collection"))
     }
