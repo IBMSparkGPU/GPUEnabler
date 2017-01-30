@@ -584,17 +584,17 @@ class CUDAFunctionSuite extends FunSuite {
     if (manager != null) {
       val ptxURL = getClass.getResource("/testCUDAKernels.ptx")
       val mapFunction = new CUDAFunction(
-        "multiplyBy2",
+        "multiplyBy2_l",
         Array("this"),
         Array("this"),
         ptxURL)
 
-      val n = 100000
+      val n: Long = 100000L
       try {
-        val output = sc.parallelize(1 to n, 64)
-          .mapExtFunc((x: Int) => 2 * x, mapFunction)
+        val output = sc.parallelize(1L to n, 64)
+          .mapExtFunc((x: Long) => 2 * x, mapFunction)
           .collect()
-        assert(output.sameElements((1 to n).map(_ * 2)))
+        assert(output.sameElements((1L to n).map(_ * 2)))
       } finally { 
         sc.stop
       }
@@ -649,7 +649,7 @@ class CUDAFunctionSuite extends FunSuite {
     if (manager != null) {
       val ptxURL = getClass.getResource("/testCUDAKernels.ptx")
       val mapFunction = new CUDAFunction(
-        "multiplyBy2",
+        "multiplyBy2_l",
         Array("this"),
         Array("this"),
         ptxURL)
@@ -659,7 +659,7 @@ class CUDAFunctionSuite extends FunSuite {
         case 1 => (1, 1)
       }
       val reduceFunction = new CUDAFunction(
-        "sum",
+        "sum_l",
         Array("this"),
         Array("this"),
         ptxURL,
@@ -667,12 +667,12 @@ class CUDAFunctionSuite extends FunSuite {
         Some((size: Long) => 2),
         Some(dimensions))
 
-      val n = 100000000
+      val n: Long = 100000000L
       try {
-        val output = sc.parallelize(1 to n, 64)
-          .mapExtFunc((x: Int) => 2 * x, mapFunction)
-          .reduceExtFunc((x: Int, y: Int) => x + y, reduceFunction)
-        assert(output == n * (n + 1))
+        val output: Long = sc.parallelize(1L to n, 64)
+          .mapExtFunc((x: Long) => 2 * x, mapFunction)
+          .reduceExtFunc((x: Long, y: Long) => x + y, reduceFunction)
+        assert(output == n * (n + 1L))
       } finally { 
         sc.stop
       }
