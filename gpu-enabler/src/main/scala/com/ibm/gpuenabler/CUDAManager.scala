@@ -19,7 +19,6 @@ package com.ibm.gpuenabler
 
 import java.util.Date
 import java.net.URL
-import java.util.concurrent.ConcurrentHashMap
 import jcuda.Pointer
 import jcuda.driver.JCudaDriver._
 import jcuda.driver.{CUdeviceptr, CUmodule, JCudaDriver}
@@ -27,20 +26,11 @@ import jcuda.runtime.JCuda
 import org.apache.commons.io.IOUtils
 import org.apache.spark.SparkException
 import org.slf4j.{Logger, LoggerFactory}
-import java.lang.management.ManagementFactory
 import scala.collection.mutable.HashMap
 import scala.collection.mutable
 import java.text.SimpleDateFormat
 
-/*
 private[gpuenabler] object CUDAManagerCachedModule {
-  private val cachedModules = new ConcurrentHashMap[(String, Int), CUmodule]
-  def getInstance() : ConcurrentHashMap[(String, Int), CUmodule] = { cachedModules }
-}
-*/
-
-private[gpuenabler] object CUDAManagerCachedModule {
-//  val lock:Object = new Object
   private val cachedModules = new HashMap[(String, Int), CUmodule] 
   def getInstance() : HashMap[(String, Int), CUmodule] = { cachedModules }
 }
@@ -49,41 +39,24 @@ private[gpuenabler] class CUDAManager {
   // Initialization
   // This is supposed to be called before ANY other JCuda* call to ensure we have properly loaded
   // native jCuda library and cuda context
-<<<<<<< HEAD
-  try {
-    JCudaDriver.setExceptionsEnabled(true)
-    JCudaDriver.cuInit(0)
-=======
-  val executorId = SparkEnv.get.executorId  match {
-    case "driver" => 0
-    case _ => SparkEnv.get.executorId.toInt
-  }
-  val dateFormatter = new SimpleDateFormat("dd/MM/yyyy hh:mm:ss.SSS")
-
-  var isGPUEnabled = false
-
+  private[gpuenabler] var isGPUEnabled = false
   try {
     JCudaDriver.setExceptionsEnabled(true)
     JCudaDriver.cuInit(0)
     isGPUEnabled = true
->>>>>>> 1826bb2... handle nodes with no GPU attached
   } catch {
-    case ex: UnsatisfiedLinkError => println("Native CUDA libraries not detected.")
-    case ex: NoClassDefFoundError => println("Native CUDA libraries not detected.")
-/*
-    case ex: UnsatisfiedLinkError =>
-      throw new SparkException("Could not initialize CUDA, because native jCuda libraries were " +
-        "not detected - make sure Driver and Executors are able to load them", ex)
+    case ex: UnsatisfiedLinkError => 
+      CUDAManager.logger.info("Could not initialize CUDA, because native jCuda libraries were " +
+      "not detected - continue to use CPU for execution")
     case ex: NoClassDefFoundError =>
-      throw new SparkException("Could not initialize CUDA, because native jCuda libraries were " +
-        "not detected - make sure Driver and Executors are able to load them", ex)
-*/
-
+      CUDAManager.logger.info("Could not initialize CUDA, because native jCuda libraries were " +
+      "not detected - continue to use CPU for execution")
     case ex: Throwable =>
       throw new SparkException("Could not initialize CUDA because of unknown reason", ex)
   }
 
-  def gpuCount = {
+  // Returns the number of GPUs available in this node
+  private[gpuenabler] def gpuCount = {
     val count = new Array[Int](1)
     cuDeviceGetCount(count)
     count(0)
@@ -91,7 +64,7 @@ private[gpuenabler] class CUDAManager {
 
   // private[gpuenabler] def cachedLoadModule(resource: Either[URL, (String, String)]): CUmodule = {
   // TODO : change it back to private after development
-  def cachedLoadModule(resource: Either[URL, (String, String)]): CUmodule = {
+  private[gpuenabler] def cachedLoadModule(resource: Either[URL, (String, String)]): CUmodule = {
     var resourceURL: URL = null
     var key: String = null
     var ptxString: String = null
@@ -107,22 +80,14 @@ private[gpuenabler] class CUDAManager {
 
     val devIx = new Array[Int](1)
     JCuda.cudaGetDevice(devIx)
-<<<<<<< HEAD
-=======
 
->>>>>>> 1826bb2... handle nodes with no GPU attached
     synchronized {
       // Since multiple modules cannot be loaded into one context in runtime API,
       //   we use singleton cache http://stackoverflow.com/questions/32502375/
       //   loading-multiple-modules-in-jcuda-is-not-working
       // TODO support loading multiple ptxs
       //   http://stackoverflow.com/questions/32535828/jit-in-jcuda-loading-multiple-ptx-modules
-
       CUDAManagerCachedModule.getInstance.getOrElseUpdate((key, devIx(0)), {
-<<<<<<< HEAD
-    // println(" MODULE LOAD ")
-=======
->>>>>>> 1826bb2... handle nodes with no GPU attached
         // TODO maybe unload the module if it won't be needed later
         var moduleBinaryData: Array[Byte] = null
         if (resourceURL != null) {
