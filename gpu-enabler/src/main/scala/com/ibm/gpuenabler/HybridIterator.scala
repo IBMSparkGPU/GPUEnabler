@@ -205,12 +205,12 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
           }
         }
         cuMemcpyDtoHAsync(cpuPtr, kpd.devPtr, kpd.sz, cuStream) 
-	cuCtxSynchronize()
         KernelParameterDesc(cpuArr, cpuPtr, kpd.devPtr, kpd.gpuPtr, kpd.sz, kpd.symbol)
       } else {
         kpd
       }
     })
+    cuCtxSynchronize()
   }
 
   // Extract the getter method from the given object using reflection
@@ -251,7 +251,7 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
 
   private var _listKernParmDesc = if (inputArr != null && inputArr.length > 0) {
     // initFromInputIterator
-    colSchema.orderedColumns(columnsOrder).map { col =>
+    val kernParamDesc = colSchema.orderedColumns(columnsOrder).map { col =>
       cachedGPUPointers.getOrElseUpdate(blockId.get + col.prettyAccessor, {
         val cname = col.prettyAccessor.split("\\.").reverse.head
         val symbol = if (colSchema.isPrimitive) {
@@ -360,19 +360,20 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
         }
         val devPtr = GPUSparkEnv.get.cudaManager.allocateGPUMemory(colDataSize)
         cuMemcpyHtoDAsync(devPtr, hPtr, colDataSize, cuStream)
-	cuCtxSynchronize()
         val gPtr = Pointer.to(devPtr)
 
         // mark the cpuPtr null as we use pinned memory and got the Pointer directly
         new KernelParameterDesc(null, hPtr, devPtr, gPtr, colDataSize, symbol)
       })
     }
+    cuCtxSynchronize()
+    kernParamDesc
   } else if (numentries != 0) { // initEmptyArrays - mostly used by output argument list
     // set the number of entries to numentries as its initialized to '0'
     _numElements = numentries
     val colOrderSizes = colSchema.orderedColumns(columnsOrder) zip _outputArraySizes
 
-    colOrderSizes.map { col =>
+    val kernParamDesc = colOrderSizes.map { col =>
       cachedGPUPointers.getOrElseUpdate(blockId.get + col._1.prettyAccessor, {
         val cname = col._1.prettyAccessor.split("\\.").reverse.head
         val symbol = if (colSchema.isPrimitive) {
@@ -416,13 +417,14 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
         }
         val devPtr = GPUSparkEnv.get.cudaManager.allocateGPUMemory(colDataSize)
         cuMemsetD32Async(devPtr, 0, colDataSize / 4, cuStream)
-	cuCtxSynchronize()
         val gPtr = Pointer.to(devPtr)
 
         // Allocate only GPU memory; main memory will be allocated during deserialization
         new KernelParameterDesc(null, null, devPtr, gPtr, colDataSize, symbol)
       })
     }
+    cuCtxSynchronize()
+    kernParamDesc
   } else {
     null
   }
