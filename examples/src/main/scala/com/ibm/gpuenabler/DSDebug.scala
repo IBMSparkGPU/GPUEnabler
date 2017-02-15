@@ -14,8 +14,6 @@ object DSDebug {
 
    case class data(name : String, factor : Long, arr:Array[Long]);
    case class data1(name: String,result:Array[Long]);
-  //case class data(name : String, cnt1 : Long, cnt2 : Long, sum : Long,arr:Array[Long]);
-  //case class data1(name: String,sum:Long);
 
   def main(args : Array[String]): Unit = {
 
@@ -33,8 +31,10 @@ object DSDebug {
 
     Utils.init(ss,Utils.homeDir +"GPUEnabler/examples/src/main/resources/GPUFuncs.json")
     val ds = ss.read.json(Utils.homeDir + "GPUEnabler/examples/src/main/resources/data.json").as[data];
-    ds.mapGPU[data1]("arrayTest",(1 to 10).map(_ * 3).toArray, (1 to 35).map(_.toLong).toArray).show()
-
+    ds.map(x => x)
+      .mapGPU[data1]("arrayTest",(1 to 10).map(_ * 3).toArray, (1 to 35).map(_.toLong).toArray)
+      .select($"name", $"result")
+      .show()
   }
 
 }

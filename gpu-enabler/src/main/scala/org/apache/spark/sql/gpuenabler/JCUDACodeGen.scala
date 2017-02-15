@@ -1,5 +1,3 @@
-package org.apache.spark.sql.gpuenabler
-
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -16,6 +14,7 @@ package org.apache.spark.sql.gpuenabler
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.spark.sql.gpuenabler
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
@@ -39,7 +38,7 @@ abstract class JCUDAInterface {
 }
 
 /**
-  * Generates bytecode that evaluates a boolean [[Expression]] on a given input [[InternalRow]].
+  * Generates JCUDA bytecode on a given input InternalRow.
   */
 object JCUDACodeGen extends Logging {
 
@@ -270,7 +269,7 @@ object JCUDACodeGen extends Logging {
           if(isArray)
             s"""
                |int tmpCursor = holder.cursor;
-               |arrayWriter.initialize(holder,${hostVariableName}_numCols,4);
+               |arrayWriter.initialize(holder,${hostVariableName}_numCols,${dataType.defaultSize});
                |for(int j=0;j<${hostVariableName}_numCols;j++)
                |  arrayWriter.write(j, ${hostVariableName}.get$boxType());
                |rowWriter.setOffsetAndSize(${outSchemaIdx}, tmpCursor, holder.cursor - tmpCursor);
@@ -284,7 +283,7 @@ object JCUDACodeGen extends Logging {
             case ArrayType(d, _) =>
               s"""
                  |int tmpCursor = holder.cursor;
-                 |arrayWriter.initialize(holder,${hostVariableName}_numCols,4);
+                 |arrayWriter.initialize(holder,${hostVariableName}_numCols,${dataType.defaultSize});
                  |for(int j=0;j<${hostVariableName}_numCols;j++)
                  |  arrayWriter.write(j, ${hostVariableName}[idx][j]*10);
                  |rowWriter.setOffsetAndSize(${outSchemaIdx}, tmpCursor, holder.cursor - tmpCursor);
@@ -467,7 +466,7 @@ object JCUDACodeGen extends Logging {
         |
         |    public myJCUDAInterface() {
         |        result = new UnsafeRow(${outputSchema.toAttributes.length});
-        |        this.holder = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(result, 32);
+        |        this.holder = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(result, 64);
         |        this.rowWriter =
         |           new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, ${outputSchema.toAttributes.length});
         |        arrayWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeArrayWriter();

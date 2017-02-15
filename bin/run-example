@@ -45,4 +45,4 @@ echo "Executing : mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs=\"$EXAMP
 echo $EXAMPLES_DIR
 cd $EXAMPLES_DIR
 
-/home/kmadhu/spark/build/mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs="$EXAMPLE_ARGS"
+mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs="$EXAMPLE_ARGS"
