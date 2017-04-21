@@ -19,7 +19,7 @@ package com.ibm.gpuenabler
 
 import org.apache.spark.SparkEnv
 import org.apache.spark.gpuenabler.CUDAUtils._
-
+import jcuda.runtime.JCuda
 
 private[gpuenabler] class GPUSparkEnv() {
 
@@ -45,7 +45,8 @@ private[gpuenabler] class GPUSparkEnv() {
                       new GPUMemoryManagerMasterEndPoint(rpcEnv)),
                     isDriver,
                     isLocal)
-  val isGPUEnabled = (cudaManager != null)
+  val isGPUEnabled = if (cudaManager != null) cudaManager.isGPUEnabled else false
+  def gpuCount = if (isGPUEnabled) cudaManager.gpuCount else 0
   val isGPUCodeGenEnabled =
     isGPUEnabled && SparkEnv.get.conf.getBoolean("spark.gpu.codegen", false)
 }
@@ -64,6 +65,14 @@ private[gpuenabler] object GPUSparkEnv extends _Logging {
       if (SparkEnv.get != oldSparkEnv) {
         oldSparkEnv = SparkEnv.get
         initalize()
+      }
+      
+      if (env.isGPUEnabled) { 
+        val executorId = env.executorId match {
+          case "driver" => 0
+          case _ => SparkEnv.get.executorId.toInt
+        }
+        JCuda.cudaSetDevice(executorId % env.gpuCount )
       }
       env
     }
