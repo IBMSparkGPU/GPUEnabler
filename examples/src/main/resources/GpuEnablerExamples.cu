@@ -155,3 +155,21 @@ __global__ void multiplyBy2o(int *size, const long *in, long *out) {
         out[ix] = in[ix] * 2;
     }
 }
+
+
+extern "C"
+__global__ void arrayTestMod(int n, long *factor, long *arr,int *const_arr1, long *const_arr2,long *result)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if(i == 0) {
+       printf("In ArrayTest n=%d factor=%p arr=%p result=%p \n",n,factor,arr,result);
+       printf("In const %d %d %d\n",const_arr1[0],const_arr1[1],const_arr1[2]);
+       printf("In const %ld %ld %ld\n",const_arr2[0],const_arr2[1],const_arr2[2]);
+       int idx = i * 3;
+       result[idx]=arr[idx] * factor[i];
+       printf("ArrayTest  [%ld] * [%ld %ld %ld] = [%ld] \n", factor[i],
+          arr[idx],arr[idx+1],arr[idx+2],
+                result[idx]);
+    }
+}
+
