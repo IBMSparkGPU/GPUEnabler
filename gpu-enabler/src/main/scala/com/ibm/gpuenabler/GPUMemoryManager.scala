@@ -17,8 +17,11 @@
 
 package com.ibm.gpuenabler
 
+import jcuda.driver.CUdeviceptr
 import org.apache.spark.SparkException
 import org.apache.spark.gpuenabler.CUDAUtils._
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+
 import scala.collection.mutable
 
 private[gpuenabler] case class RegisterGPUMemoryManager(id : String, slaveEndPointerRef: _RpcEndpointRef)
@@ -26,6 +29,10 @@ private[gpuenabler] case class RegisterGPUMemoryManager(id : String, slaveEndPoi
 private[gpuenabler] case class UncacheGPU(id : Int)
 
 private[gpuenabler] case class CacheGPU(id : Int)
+
+private[gpuenabler] case class UncacheGPUDS(lp : LogicalPlan)
+
+private[gpuenabler] case class CacheGPUDS(lp : LogicalPlan)
 
 private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) extends _ThreadSafeRpcEndpoint {
 
@@ -47,6 +54,18 @@ private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) ex
     }
   }
 
+  def unCacheGPU(lp : LogicalPlan): Unit = {
+    for (slaveRef <- GPUMemoryManagerSlaves.values) {
+      tell(slaveRef, UncacheGPUDS(lp))
+    }
+  }
+
+  def cacheGPU(lp : LogicalPlan): Unit = {
+    for (slaveRef <- GPUMemoryManagerSlaves.values){
+      tell(slaveRef, CacheGPUDS(lp))
+    }
+  }
+  
   override def receiveAndReply(context: _RpcCallContext): PartialFunction[Any, Unit] = {
     case RegisterGPUMemoryManager(id, slaveEndPointRef) =>
       registerGPUMemoryManager(id, slaveEndPointRef)
@@ -56,6 +75,12 @@ private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) ex
       context.reply (true)
     case CacheGPU(rddId : Int) =>
       cacheGPU(rddId)
+      context.reply (true)
+    case UncacheGPUDS(lp : LogicalPlan) =>
+      unCacheGPU(lp)
+      context.reply (true)
+    case CacheGPUDS(lp : LogicalPlan) =>
+      cacheGPU(lp)
       context.reply (true)
   }
 
@@ -78,12 +103,26 @@ private[gpuenabler] class GPUMemoryManagerSlaveEndPoint(val rpcEnv: _RpcEnv,
     master.cacheGPU(rddId)
   }
 
+  def unCacheGPU(lp : LogicalPlan): Unit = {
+    master.unCacheGPU(lp)
+  }
+
+  def cacheGPU(lp : LogicalPlan): Unit = {
+    master.cacheGPU(lp)
+  }
+
   override def receiveAndReply(context: _RpcCallContext): PartialFunction[Any, Unit] = {
     case UncacheGPU(rddId : Int) =>
       unCacheGPU(rddId)
       context.reply (true)
     case CacheGPU(rddId : Int) =>
       cacheGPU(rddId)
+      context.reply (true)
+    case UncacheGPUDS(lp : LogicalPlan) =>
+      unCacheGPU(lp)
+      context.reply (true)
+    case CacheGPUDS(lp : LogicalPlan) =>
+      cacheGPU(lp)
       context.reply (true)
     case id : String =>
       context.reply (true)
@@ -95,11 +134,36 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
                        val driverEndpoint: _RpcEndpointRef,
                        val isDriver : Boolean,
                        val isLocal : Boolean) {
+  
+  val cachedGPUPointersDS = new mutable.HashMap[LogicalPlan, Set[CUdeviceptr]]()
+  val cachedGPUDS = new mutable.ListBuffer[LogicalPlan]()
+  def getCachedGPUPointersDS : mutable.HashMap[LogicalPlan, Set[CUdeviceptr]] = cachedGPUPointersDS
+
+  def cacheGPU(lp : LogicalPlan): Unit = {
+    if (!cachedGPUDS.contains(lp)) {
+      cachedGPUDS += lp
+    }
+  }
+
+  def unCacheGPU(lp : LogicalPlan): Unit = {
+    cachedGPUDS -= lp
+  }
+
+  def unCacheGPUSlaves(lp : LogicalPlan): Unit = {
+    tell(com.ibm.gpuenabler.UncacheGPUDS(lp))
+  }
+
+  def cacheGPUSlaves(lp : LogicalPlan): Unit = {
+    tell(com.ibm.gpuenabler.CacheGPUDS(lp))
+  }
+
+  
 
   val cachedGPUPointers = new mutable.HashMap[String, KernelParameterDesc]()
   val cachedGPURDDs = new mutable.ListBuffer[Int]()
-
+  
   def getCachedGPUPointers : mutable.HashMap[String, KernelParameterDesc] = cachedGPUPointers
+  
 
   if (!isDriver || isLocal) {
     val slaveEndpoint = rpcEnv.setupEndpoint(
@@ -147,3 +211,4 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
 private[gpuenabler] object GPUMemoryManager {
   val DRIVER_ENDPOINT_NAME = "GPUMemoryManager"
 }
+

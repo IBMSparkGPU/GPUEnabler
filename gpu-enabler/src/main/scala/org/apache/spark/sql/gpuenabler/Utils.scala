@@ -23,25 +23,27 @@ import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql._
-import scala.collection.mutable.HashMap
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
+import org.apache.spark.sql.types.StructType
 import scala.collection.JavaConverters._
 import scala.collection.mutable
+import com.ibm.gpuenabler.GPUSparkEnv
 
-case class MAPGPUExec[T, U](cf: CudaFunc, args : Array[AnyRef], 
-        child: SparkPlan, 
-        inputEncoder: Encoder[T], outputEncoder: Encoder[U], 
-        outputObjAttr: Attribute)
+case class MAPGPUExec[T, U](cf: DSCUDAFunction, args : Array[AnyRef],
+                            outputArraySizes: Seq[Int],
+                            child: SparkPlan,
+                            inputEncoder: Encoder[T], outputEncoder: Encoder[U],
+                            outputObjAttr: Attribute)
   extends ObjectConsumerExec with ObjectProducerExec  {
 
-  lazy val inputSchema = inputEncoder.schema
-  lazy val outputSchema = outputEncoder.schema
+  lazy val inputSchema: StructType = inputEncoder.schema
+  lazy val outputSchema: StructType = outputEncoder.schema
 
   override def output: Seq[Attribute] = outputObjAttr :: Nil
 
   override lazy val metrics = Map(
-    "numOutputRows" -> SQLMetrics.createMetric(sparkContext, 
-       "number of output rows"))
+    "numOutputRows" -> SQLMetrics.createMetric(sparkContext,
+      "number of output rows"))
 
   protected override def doExecute(): RDD[InternalRow] = {
     val numOutputRows = longMetric("numOutputRows")
@@ -51,22 +53,22 @@ case class MAPGPUExec[T, U](cf: CudaFunc, args : Array[AnyRef],
 
     val childRDD = child.execute()
 
-    childRDD.mapPartitionsWithIndex { (index, iter) =>
-      val buffer = JCUDACodeGen.generate(inputSchema,outputSchema,cf,args)
+    childRDD.mapPartitions{ iter =>
+      val buffer = JCUDACodeGen.generate(inputSchema,
+                                  outputSchema,cf,args, outputArraySizes)
       val list = new mutable.ListBuffer[InternalRow]
-      iter.foreach(x => 
+      iter.foreach(x =>
         list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy())
 
       buffer.init(list.toIterator.asJava,args,list.size)
-      
+
       new Iterator[InternalRow] {
-        override def hasNext: Boolean = {
-          buffer.hasNext
-        }
-        override def next: InternalRow = 
+        override def hasNext: Boolean = buffer.hasNext()
+
+        override def next: InternalRow =
           InternalRow(outexprEnc
             .resolveAndBind(outputEncoder.schema.toAttributes)
-            .fromRow(buffer.next.copy()))
+            .fromRow(buffer.next().copy()))
       }
     }
   }
@@ -74,68 +76,102 @@ case class MAPGPUExec[T, U](cf: CudaFunc, args : Array[AnyRef],
 
 object MAPGPU
 {
-  def apply[T: Encoder, U : Encoder]( 
-      func: CudaFunc, args : Array[AnyRef], child: LogicalPlan) : LogicalPlan = {
+  def apply[T: Encoder, U : Encoder](
+                                      func: DSCUDAFunction,
+                                      args : Array[AnyRef],
+                                      outputArraySizes: Seq[Int],
+                                      child: LogicalPlan) : LogicalPlan = {
     val deserialized = CatalystSerde.deserialize[T](child)
     val mapped = MAPGPU(
-      func, args, 
+      func, args, outputArraySizes,
       deserialized,
       implicitly[Encoder[T]],
       implicitly[Encoder[U]],
       CatalystSerde.generateObjAttr[U]
-      )
+    )
     CatalystSerde.serialize[U](mapped)
   }
 }
 
-case class MAPGPU[T: Encoder, U : Encoder](func: CudaFunc, 
-        args : Array[AnyRef], child: LogicalPlan, 
-        inputEncoder: Encoder[T], outputEncoder: Encoder[U], 
-        outputObjAttr: Attribute)
+case class MAPGPU[T: Encoder, U : Encoder](func: DSCUDAFunction,
+                                           args : Array[AnyRef],
+                                           outputArraySizes: Seq[Int],
+                                           child: LogicalPlan,
+                                           inputEncoder: Encoder[T], outputEncoder: Encoder[U],
+                                           outputObjAttr: Attribute)
   extends ObjectConsumer with ObjectProducer {
-   override def otherCopyArgs : Seq[AnyRef] = inputEncoder :: outputEncoder ::  Nil
+  override def otherCopyArgs : Seq[AnyRef] = inputEncoder :: outputEncoder ::  Nil
 }
 
 object GPUOperators extends Strategy {
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-    case MAPGPU(cf, args, child,inputEncoder, outputEncoder, outputObjAttr) =>
-      MAPGPUExec(cf, args, planLater(child),
+    case MAPGPU(cf, args, outputArraySizes, child,inputEncoder, outputEncoder, outputObjAttr) =>
+      MAPGPUExec(cf, args, outputArraySizes, planLater(child),
         inputEncoder, outputEncoder, outputObjAttr) :: Nil
-    case _ => {
-      Nil
-    }
+    case _ => Nil
   }
 }
 
-case class Args(length: String, name : String)
-case class Func(fname:String, ptxPath: String)
-case class CudaFunc(func: Func, inputArgs : Array[Args], outputArgs : Array[Args])
+//case class Args(length: String, name : String)
+//case class Func(fname:String, ptxPath: String)
+//case class CudaFunc(func: Func, inputArgs : Array[Args], outputArgs : Array[Args])
+
+case class DSCUDAFunction(
+                           funcName: String,
+                           _inputColumnsOrder: Seq[String] = null,
+                           _outputColumnsOrder: Seq[String] = null,
+                           resource: Any,
+                           constArgs: Seq[AnyVal] = Seq(),
+                           stagesCount: Option[Long => Int] = None,
+                           dimensions: Option[(Long, Int) => (Int, Int)] = None,
+                           outputSize: Option[Long] = None
+                         )
 
 object Utils {
 
   type _Column = org.apache.spark.sql.Column
 
-  val cudaFunc : mutable.HashMap[String,CudaFunc] = new HashMap[String,CudaFunc]
+  //val cudaFunc : mutable.HashMap[String,CudaFunc] = new HashMap[String,CudaFunc]
 
   def homeDir = System.getProperty("user.dir").split("GPUEnabler")(0)
 
-  def init(ss : SparkSession, fname : String): Unit = {
-    import ss.implicits._
-    val c = ss.read.json(fname).as[CudaFunc]
-    c.show()
-    c.foreach(x=>cudaFunc += x.func.fname -> x)
-  }
+//  def init(ss : SparkSession, fname : String): Unit = {
+//    import ss.implicits._
+//    val c = ss.read.json(fname).as[CudaFunc]
+//    c.show()
+//    c.foreach(x=>cudaFunc += x.func.fname -> x)
+//  }
 
   implicit class tempClass[T: Encoder](ds: Dataset[T]) {
 
-    def mapGPU[U:Encoder](inp: String, args: AnyRef*): Dataset[U] =  {
-      val cf = cudaFunc(inp)
-      val encoder = implicitly[Encoder[U]]
-
-      Dataset[U](ds.sparkSession, MAPGPU[T, U](cf, args.toArray, ds.logicalPlan))
+    //def mapGPU[U:Encoder](inp: String, args: AnyRef*): Dataset[U] =  {
+    def mapGPU[U:Encoder](func: T => U,
+                          cf: DSCUDAFunction,
+                          args: Array[AnyRef],
+                          outputArraySizes: Seq[Int] = null): Dataset[U] =  {
+      Dataset[U](ds.sparkSession,
+          MAPGPU[T, U](cf, args, outputArraySizes,
+          ds.logicalPlan))
     }
 
-    ds.sparkSession.experimental.extraStrategies =
-      (GPUOperators :: Nil)
+    def reduceGPU(func: (T, T) => T,
+                          cf: DSCUDAFunction,
+                          args: Array[AnyRef],
+                          outputArraySizes: Seq[Int] = null): T =  {
+
+      val ds1 = Dataset[T](ds.sparkSession,
+        MAPGPU[T, T](cf, args, outputArraySizes,
+          ds.logicalPlan))
+
+      ds1.reduce(func)
+
+    }
+
+    def cacheGPU(): Dataset[T] = {
+      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(ds.queryExecution.analyzed)
+      ds
+    }
+
+    ds.sparkSession.experimental.extraStrategies = GPUOperators :: Nil
   }
 }

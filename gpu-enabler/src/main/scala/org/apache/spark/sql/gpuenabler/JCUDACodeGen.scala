@@ -1,3 +1,5 @@
+package org.apache.spark.sql.gpuenabler
+
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -14,7 +16,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.sql.gpuenabler
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
@@ -38,7 +39,7 @@ abstract class JCUDAInterface {
 }
 
 /**
-  * Generates JCUDA bytecode on a given input InternalRow.
+  * Generates bytecode that evaluates a boolean [[Expression]] on a given input [[InternalRow]].
   */
 object JCUDACodeGen extends Logging {
 
@@ -53,6 +54,7 @@ object JCUDACodeGen extends Logging {
                       inSchemaIdx : Int,
                       outSchemaIdx : Int,
                       length : Long,
+                      outputSize: Long,
                       ctx : CodegenContext) {
 
     //TODO use case class
@@ -93,6 +95,8 @@ object JCUDACodeGen extends Logging {
 
     if(is(CONST))
       size = s"$length * Sizeof.${javaType.toUpperCase()}"
+    else if (outputSize != 0 && is(GPUOUTPUT))
+      size = s"${outputSize} * Sizeof.${javaType.toUpperCase()}"
     else
       size = s"numElements * Sizeof.${javaType.toUpperCase()}"
 
@@ -102,7 +106,10 @@ object JCUDACodeGen extends Logging {
         arrayType = d;
         boxType = ctx.boxedType(d)
         javaType = ctx.javaType(d)
-        size = s"numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
+        if (outputSize != 0 && is(GPUOUTPUT))
+          size = s"${outputSize} * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
+        else
+          size = s"numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
       case _ =>
     }
 
@@ -177,9 +184,9 @@ object JCUDACodeGen extends Logging {
       if (is(GPUINPUT)) {
         if (isArray)
           s"""
-           |$javaType tmp[] = r.getArray($inSchemaIdx).to${boxType}Array();
-           |for(int j = 0; j < gpuInputHost_arr_numCols; j ++)
-           |  ${hostVariableName}.put$boxType(tmp[j]);
+           |$javaType tmp_${colName}[] = r.getArray($inSchemaIdx).to${boxType}Array();
+           |for(int j = 0; j < gpuInputHost_${colName}_numCols; j ++)
+           |  ${hostVariableName}.put$boxType(tmp_${colName}[j]);
         """.stripMargin
         else
           s"${hostVariableName}.put$boxType(${ctx.getValue("r", dataType, inSchemaIdx.toString)});\n"
@@ -191,9 +198,9 @@ object JCUDACodeGen extends Logging {
         case StringType =>
           s"$hostVariableName[i] = ${ctx.getValue("r", dataType, inSchemaIdx.toString)}.clone();\n"
         case ArrayType(d,_) =>
-          s""" | $javaType tmp[] = r.getArray($inSchemaIdx).to${boxType}Array();
+          s""" | $javaType tmp_${colName}[] = r.getArray($inSchemaIdx).to${boxType}Array();
                | for(int j=0; j<${hostVariableName}_numCols;j++)
-               |    ${hostVariableName}[i][j] = tmp[j];
+               |    ${hostVariableName}[i][j] = tmp_${colName}[j];
           """.stripMargin
         case _ =>
           s"${hostVariableName}[i] = ${ctx.getValue("r", dataType, inSchemaIdx.toString)};\n"
@@ -268,12 +275,12 @@ object JCUDACodeGen extends Logging {
         if(is(GPUINPUT) || is(GPUOUTPUT)) {
           if(isArray)
             s"""
-               |int tmpCursor = holder.cursor;
+               |int tmpCursor_${colName} = holder.cursor;
                |arrayWriter.initialize(holder,${hostVariableName}_numCols,${dataType.defaultSize});
                |for(int j=0;j<${hostVariableName}_numCols;j++)
                |  arrayWriter.write(j, ${hostVariableName}.get$boxType());
-               |rowWriter.setOffsetAndSize(${outSchemaIdx}, tmpCursor, holder.cursor - tmpCursor);
-               |rowWriter.alignToWords(holder.cursor - tmpCursor);
+               |rowWriter.setOffsetAndSize(${outSchemaIdx}, tmpCursor_${colName}, holder.cursor - tmpCursor_${colName});
+               |rowWriter.alignToWords(holder.cursor - tmpCursor_${colName});
             """.stripMargin
           else
             s"rowWriter.write(${outSchemaIdx},${hostVariableName}.get$boxType());\n"
@@ -282,12 +289,12 @@ object JCUDACodeGen extends Logging {
           dataType match {
             case ArrayType(d, _) =>
               s"""
-                 |int tmpCursor = holder.cursor;
+                 |int tmpCursor${colName} = holder.cursor;
                  |arrayWriter.initialize(holder,${hostVariableName}_numCols,${dataType.defaultSize});
                  |for(int j=0;j<${hostVariableName}_numCols;j++)
-                 |  arrayWriter.write(j, ${hostVariableName}[idx][j]*10);
-                 |rowWriter.setOffsetAndSize(${outSchemaIdx}, tmpCursor, holder.cursor - tmpCursor);
-                 |rowWriter.alignToWords(holder.cursor - tmpCursor);
+                 |  arrayWriter.write(j, ${hostVariableName}[idx][j]);
+                 |rowWriter.setOffsetAndSize(${outSchemaIdx}, tmpCursor${colName}, holder.cursor - tmpCursor${colName});
+                 |rowWriter.alignToWords(holder.cursor - tmpCursor${colName});
              """.stripMargin
             case _ =>
               s"rowWriter.write(${outSchemaIdx},${hostVariableName}[idx]);\n"
@@ -299,24 +306,28 @@ object JCUDACodeGen extends Logging {
   }
 
   def createVariables(inputSchema : StructType, outputSchema : StructType,
-               cf : CudaFunc, args : Array[AnyRef], ctx : CodegenContext) = {
+                      cf : DSCUDAFunction, args : Array[AnyRef],
+                      outputArraySizes: Seq[Int], ctx : CodegenContext) = {
     // columns to be copied from inputRow to outputRow without gpu computation.
     val variables = ArrayBuffer.empty[Variable]
 
-    def findSchemaIndex(schema : StructType, colName : String) =
+    def findSchemaIndex(schema: StructType, colName: String) =
       schema.toAttributes.indexWhere(a => a.name.equalsIgnoreCase(colName))
 
-    cf.inputArgs.foreach {
+    cf._inputColumnsOrder.foreach {
       x => {
-        val inIdx = findSchemaIndex(inputSchema, x.name)
-        assume(inIdx >= 0, s"$inIdx ${x.name} not available in input Schema")
-        val outIdx = findSchemaIndex(outputSchema, x.name)
-        variables += Variable(x.name,
-          GPUINPUT | { if (outIdx > 1) RDDOUTPUT else 0 },
+        val inIdx = findSchemaIndex(inputSchema, x)
+        assume(inIdx >= 0, s"$inIdx ${x} not available in input Schema")
+        val outIdx = findSchemaIndex(outputSchema, x)
+        variables += Variable(x,
+          GPUINPUT | {
+            if (outIdx > 1) RDDOUTPUT else 0
+          },
           inputSchema(inIdx).dataType,
           inIdx,
           outIdx,
-          x.length.toLong,
+          1, cf.outputSize.getOrElse(0),
+          // x.length.toLong,
           ctx
         )
       }
@@ -327,40 +338,65 @@ object JCUDACodeGen extends Logging {
       x => {
         val dtype =
           x match {
-            case y: Array[Long] => {(LongType,y.length)}
-            case y: Array[Int] =>  {(IntegerType,y.length)}
-            case y: Array[Char] => {(ByteType,y.length)}
+            case y: Array[Long] => {
+              (LongType, y.length)
+            }
+            case y: Array[Int] => {
+              (IntegerType, y.length)
+            }
+            case y: Array[Char] => {
+              (ByteType, y.length)
+            }
           }
 
-        variables += Variable (cnt.toString(),
+        variables += Variable(cnt.toString(),
           CONST,
           dtype._1,
           -1,
           -1,
-          dtype._2,
+          dtype._2, cf.outputSize.getOrElse(0),
           ctx
         )
         cnt += 1
       }
     }
 
-    cf.outputArgs.foreach {
-      x => {
-        val outIdx = findSchemaIndex(outputSchema, x.name)
+    if (outputArraySizes == null) {
+      cf._outputColumnsOrder.foreach {
+        x => {
+          val outIdx = findSchemaIndex(outputSchema, x)
+
+          // GPU OUTPUT variables must be in the output -- TODO may need to relax
+          assume(outIdx >= 0)
+
+          variables += Variable(x,
+            GPUOUTPUT | RDDOUTPUT,
+            outputSchema(outIdx).dataType,
+            -1,
+            outIdx,
+            1, //x.length.toLong, JOE - how to get partition count
+            cf.outputSize.getOrElse(0),
+            ctx)
+        }
+      }
+    } else {
+      assert(cf._outputColumnsOrder.length == outputArraySizes.length)
+      cf._outputColumnsOrder.zip(outputArraySizes).foreach(col => {
+        val outIdx = findSchemaIndex(outputSchema, col._1)
 
         // GPU OUTPUT variables must be in the output -- TODO may need to relax
         assume(outIdx >= 0)
 
-        variables += Variable(x.name,
-          GPUOUTPUT|RDDOUTPUT,
+        variables += Variable(col._1,
+          GPUOUTPUT | RDDOUTPUT,
           outputSchema(outIdx).dataType,
           -1,
           outIdx,
-          x.length.toLong,
+          col._2, //x.length.toLong, JOE - how to get partition count
+          cf.outputSize.getOrElse(0),
           ctx)
-      }
+      })
     }
-
 
     // There could be some column which is neither in GPUInput nor GPUOutput
     // It would be directly copied from schema.
@@ -372,7 +408,7 @@ object JCUDACodeGen extends Logging {
             x.dataType,
             findSchemaIndex(inputSchema,x.name),
             findSchemaIndex(outputSchema,x.name),
-            -1,
+            -1, cf.outputSize.getOrElse(0),
             ctx
           )
 
@@ -396,11 +432,12 @@ object JCUDACodeGen extends Logging {
   }
 
   def generate(inputSchema : StructType, outputSchema : StructType,
-                   cf : CudaFunc, args: Array[AnyRef]) : JCUDAInterface = {
+                   cf : DSCUDAFunction, args: Array[AnyRef],
+               outputArraySizes: Seq[Int]) : JCUDAInterface = {
 
     val ctx = new CodegenContext()
 
-    val variables = createVariables(inputSchema,outputSchema,cf,args,ctx)
+    val variables = createVariables(inputSchema,outputSchema,cf,args,outputArraySizes, ctx)
     val debugMode = !SparkEnv.get.conf.get("DebugMode","").isEmpty
     if(debugMode)
       println("Compile Existing File - DebugMode");
@@ -425,7 +462,7 @@ object JCUDACodeGen extends Logging {
         |import static jcuda.driver.JCudaDriver.*;
         |import com.ibm.gpuenabler.GPUSparkEnv;
         |
-        |public class GeneratedCode_${cf.func.fname} { // REMOVE
+        |public class GeneratedCode_${cf.funcName} { // REMOVE
         |
         |    // Handle to call from compiled source
         |    public JCUDAInterface generate(Object[] references) {
@@ -459,7 +496,8 @@ object JCUDACodeGen extends Logging {
         |        private boolean processed = false;
         |        private boolean freeMemory = true;
         |        private int idx = 0;
-        |        private int numElements = 0;
+        |        private int numElements = 0; 
+        |        private int hasNextLoop = 0;
         |        private Object refs[];
         |
         |        ${getStmt(variables,List("declareHost","declareDevice"),"\n")}
@@ -475,6 +513,10 @@ object JCUDACodeGen extends Logging {
         |    public void init(Iterator<InternalRow> inp, Object inprefs[], int size) {
         |        inpitr = inp;
         |        numElements = size;
+        |        hasNextLoop = ${ cf.outputSize match {
+        case Some(outsize) => outsize
+        case None => "numElements"
+      } };
         |        refs = inprefs;
         |    }
         |
@@ -483,7 +525,7 @@ object JCUDACodeGen extends Logging {
         |           processGPU();
         |           processed = true;
         |        }
-        |        else if(idx >= numElements) {
+        |        else if(idx >= hasNextLoop) {
         |           if(freeMemory) {
         |              freePinnedMemory();
         |              freeMemory=false;
@@ -504,13 +546,12 @@ object JCUDACodeGen extends Logging {
         |    }
         |
         |    public void processGPU() {
+        |       inpitr.hasNext();
+        |       CUmodule module = GPUSparkEnv.get().cudaManager().getModule("${cf.resource}");
         |
-        |       CUmodule module = GPUSparkEnv.get().cudaManager().getModule("${cf.func.ptxPath}");
-        |
-        |       // Obtain a function pointer to the ${cf.func.fname} function.
+        |       // Obtain a function pointer to the ${cf.funcName} function.
         |       CUfunction function = new CUfunction();
-        |       cuModuleGetFunction(function, module, "${cf.func.fname}");
-        |
+        |       cuModuleGetFunction(function, module, "${cf.funcName}");
         |
         |       // Fill GPUInput/Direct Copy Host variables
         |       for(int i=0; inpitr.hasNext();i++) {
@@ -563,7 +604,7 @@ object JCUDACodeGen extends Logging {
         |} // REMOVE
       """.stripMargin
 
-    val fpath = s"${Utils.homeDir}GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/GeneratedCode_${cf.func.fname}.java"
+    val fpath = s"${Utils.homeDir}GPUEnabler/gpu-enabler/src/main/scala/org/apache/spark/sql/gpuenabler/GeneratedCode_${cf.funcName}.java"
 
     def writeToFile(codeBody : String): Unit = {
       val code = new CodeAndComment(codeBody,ctx.getPlaceHolderToComments())
@@ -607,4 +648,5 @@ object JCUDACodeGen extends Logging {
   }
 
 }
+
 
