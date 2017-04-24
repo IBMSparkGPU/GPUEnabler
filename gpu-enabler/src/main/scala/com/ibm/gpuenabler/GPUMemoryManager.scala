@@ -135,14 +135,18 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
                        val isDriver : Boolean,
                        val isLocal : Boolean) {
   
-  val cachedGPUPointersDS = new mutable.HashMap[LogicalPlan, Set[CUdeviceptr]]()
+  val cachedGPUPointersDS = new mutable.HashMap[LogicalPlan, mutable.HashMap[String, CUdeviceptr]]()
   val cachedGPUDS = new mutable.ListBuffer[LogicalPlan]()
-  def getCachedGPUPointersDS : mutable.HashMap[LogicalPlan, Set[CUdeviceptr]] = cachedGPUPointersDS
+  def getCachedGPUPointersDS : mutable.HashMap[LogicalPlan,
+    mutable.HashMap[String, CUdeviceptr]] = cachedGPUPointersDS
 
   def cacheGPU(lp : LogicalPlan): Unit = {
     if (!cachedGPUDS.contains(lp)) {
       cachedGPUDS += lp
     }
+    cachedGPUPointersDS.getOrElseUpdate(lp, {
+      new mutable.HashMap[String, CUdeviceptr]()
+    })
   }
 
   def unCacheGPU(lp : LogicalPlan): Unit = {

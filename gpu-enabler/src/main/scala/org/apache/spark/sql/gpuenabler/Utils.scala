@@ -28,12 +28,15 @@ import org.apache.spark.sql.types.StructType
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import com.ibm.gpuenabler.GPUSparkEnv
+import jcuda.driver.CUdeviceptr
 
 case class MAPGPUExec[T, U](cf: DSCUDAFunction, args : Array[AnyRef],
                             outputArraySizes: Seq[Int],
                             child: SparkPlan,
                             inputEncoder: Encoder[T], outputEncoder: Encoder[U],
-                            outputObjAttr: Attribute)
+                            outputObjAttr: Attribute,
+                            cached: Int,
+                            gpuPtrs: Array[mutable.HashMap[String, CUdeviceptr]])
   extends ObjectConsumerExec with ObjectProducerExec  {
 
   lazy val inputSchema: StructType = inputEncoder.schema
@@ -55,7 +58,7 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, args : Array[AnyRef],
 
     childRDD.mapPartitions{ iter =>
       val buffer = JCUDACodeGen.generate(inputSchema,
-                                  outputSchema,cf,args, outputArraySizes)
+                     outputSchema,cf,args, outputArraySizes, cached, gpuPtrs)
       val list = new mutable.ListBuffer[InternalRow]
       iter.foreach(x =>
         list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy())
@@ -104,17 +107,25 @@ case class MAPGPU[T: Encoder, U : Encoder](func: DSCUDAFunction,
 }
 
 object GPUOperators extends Strategy {
+  val DScache = GPUSparkEnv.get.gpuMemoryManager.cachedGPUDS
+
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
     case MAPGPU(cf, args, outputArraySizes, child,inputEncoder, outputEncoder, outputObjAttr) =>
+
+      // cached possible values : 0 - NoCache; 1 - plan is cached; 2 - child plan is cached;
+      var cached = if (DScache.contains(plan)) 1 else 0
+      cached = cached | (if (DScache.contains(child)) 2 else 0)
+      
+      // get access the GpuPtr's HashMap for the corresponding plan's
+      val gpuPtrs = new Array[mutable.HashMap[String, CUdeviceptr]](2)
+      gpuPtrs(0) = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(plan, null)
+      gpuPtrs(1) = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(child, null)
+
       MAPGPUExec(cf, args, outputArraySizes, planLater(child),
-        inputEncoder, outputEncoder, outputObjAttr) :: Nil
+        inputEncoder, outputEncoder, outputObjAttr, cached, gpuPtrs) :: Nil
     case _ => Nil
   }
 }
-
-//case class Args(length: String, name : String)
-//case class Func(fname:String, ptxPath: String)
-//case class CudaFunc(func: Func, inputArgs : Array[Args], outputArgs : Array[Args])
 
 case class DSCUDAFunction(
                            funcName: String,
@@ -131,20 +142,10 @@ object Utils {
 
   type _Column = org.apache.spark.sql.Column
 
-  //val cudaFunc : mutable.HashMap[String,CudaFunc] = new HashMap[String,CudaFunc]
-
   def homeDir = System.getProperty("user.dir").split("GPUEnabler")(0)
-
-//  def init(ss : SparkSession, fname : String): Unit = {
-//    import ss.implicits._
-//    val c = ss.read.json(fname).as[CudaFunc]
-//    c.show()
-//    c.foreach(x=>cudaFunc += x.func.fname -> x)
-//  }
 
   implicit class tempClass[T: Encoder](ds: Dataset[T]) {
 
-    //def mapGPU[U:Encoder](inp: String, args: AnyRef*): Dataset[U] =  {
     def mapGPU[U:Encoder](func: T => U,
                           cf: DSCUDAFunction,
                           args: Array[AnyRef],
@@ -168,7 +169,11 @@ object Utils {
     }
 
     def cacheGPU(): Dataset[T] = {
-      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(ds.queryExecution.analyzed)
+      val lp = ds.queryExecution.optimizedPlan transform {
+        case SerializeFromObject(_, lp) => lp
+      }
+
+      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(lp)
       ds
     }
 

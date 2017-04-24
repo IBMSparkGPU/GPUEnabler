@@ -22,11 +22,12 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.types._
+import jcuda.driver.{CUdeviceptr, CUfunction, CUstream}
 import java.io.{File, PrintWriter}
 
 import jcuda.Pointer
 import org.apache.spark.SparkEnv
-
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 /**
@@ -433,7 +434,8 @@ object JCUDACodeGen extends Logging {
 
   def generate(inputSchema : StructType, outputSchema : StructType,
                    cf : DSCUDAFunction, args: Array[AnyRef],
-               outputArraySizes: Seq[Int]) : JCUDAInterface = {
+               outputArraySizes: Seq[Int], cached: Int,
+               gpuPtrs: Array[mutable.HashMap[String, CUdeviceptr]]) : JCUDAInterface = {
 
     val ctx = new CodegenContext()
 
@@ -443,6 +445,18 @@ object JCUDACodeGen extends Logging {
       println("Compile Existing File - DebugMode");
     else
       println("Generate Code")
+
+    println(s"Cached $cached for ${cf.funcName}")
+    if (cached == 1) {
+      if (gpuPtrs(0) != null) println("Output holder ready to be written")
+      else println("ERROR for output holder")
+
+    }
+
+    if (cached == 2) {
+      if (gpuPtrs(1) != null) println("Input holder ready to be read")
+      else print("ERROR for input holder")
+    }
 
     val codeBody =
       s"""
