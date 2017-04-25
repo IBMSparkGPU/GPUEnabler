@@ -14,7 +14,7 @@
 /* 014 */ import java.util.Iterator;
 /* 015 */ import static jcuda.driver.JCudaDriver.*;
 /* 016 */ import com.ibm.gpuenabler.GPUSparkEnv;
-/* 017 */
+/* 017 */ import java.util.Map;import java.util.List;
 /* 018 */ public class GeneratedCode_template { // REMOVE
 /* 019 */
 /* 020 */   // Handle to call from compiled source
@@ -85,7 +85,7 @@
 /* 085 */       arrayWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeArrayWriter();
 /* 086 */     }
 /* 087 */
-/* 088 */     public void init(Iterator<InternalRow> inp, Object ref[], int size) {
+/* 088 */     public void init(Iterator<InternalRow> inp, Object ref[], int size,int cached, List<Map<String,CUdeviceptr>> gpuPtrs) {
 /* 089 */       inpitr = inp;
 /* 090 */       numElements = size;
 /* 091 */     }

@@ -58,14 +58,23 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, args : Array[AnyRef],
 
     childRDD.mapPartitions{ iter =>
       val buffer = JCUDACodeGen.generate(inputSchema,
-                     outputSchema,cf,args, outputArraySizes, cached, gpuPtrs)
+                     outputSchema,cf,args, outputArraySizes)
       val list = new mutable.ListBuffer[InternalRow]
       iter.foreach(x =>
         list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy())
 
-      buffer.init(list.toIterator.asJava,args,list.size)
+      var imgpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]] = if (cached == 1) {
+        List(gpuPtrs(0).asJava, Map[String, CUdeviceptr]().asJava).asJava
+      } else if (cached == 2) {
+        List(Map[String, CUdeviceptr]().asJava, gpuPtrs(1).asJava).asJava
+      } else {
+        List(Map[String, CUdeviceptr]().asJava, Map[String, CUdeviceptr]().asJava).asJava
+      }
+
+      buffer.init(list.toIterator.asJava,args,list.size, cached, imgpuPtrs)
 
       new Iterator[InternalRow] {
+	  // if (gpuPtrs != null) gpuPtrs.foreach(x=> if (x!= null) x.foreach(y => println("KEYS" + y._1)))
         override def hasNext: Boolean = buffer.hasNext()
 
         override def next: InternalRow =

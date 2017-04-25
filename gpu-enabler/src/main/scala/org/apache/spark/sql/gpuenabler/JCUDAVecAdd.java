@@ -22,7 +22,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-
+import java.util.Map;
 
 import static jcuda.driver.JCudaDriver.*;
 
@@ -77,7 +77,7 @@ public class JCUDAVecAdd { // REMOVE
             this.rowWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, 3);
         }
 
-        public void init(Iterator<InternalRow> inp, Object ref[], int size) {
+        public void init(Iterator<InternalRow> inp, Object ref[], int size, int cached, List<Map<String,CUdeviceptr>> gpuPtrs) {
             inpitr = inp;
             numElements = size;
         }
