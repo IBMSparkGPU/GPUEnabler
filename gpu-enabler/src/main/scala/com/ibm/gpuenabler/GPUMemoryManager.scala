@@ -151,6 +151,14 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
 
   def unCacheGPU(lp : LogicalPlan): Unit = {
     cachedGPUDS -= lp
+
+
+    cachedGPUPointersDS.get(lp) match {
+      case Some(gpuPtrs) => {
+        gpuPtrs.foreach{case (_, ptr) => GPUSparkEnv.get.cudaManager.freeGPUMemory(ptr)}
+      }
+      case None =>
+    }
   }
 
   def unCacheGPUSlaves(lp : LogicalPlan): Unit = {
