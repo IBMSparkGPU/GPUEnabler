@@ -357,7 +357,7 @@ object JCUDACodeGen extends Logging {
         val outIdx = findSchemaIndex(outputSchema, x)
         variables += Variable(x,
           GPUINPUT | {
-            if (outIdx > 1) RDDOUTPUT else 0
+            if (outIdx > -1) RDDOUTPUT else 0
           },
           inputSchema(inIdx).dataType,
           inIdx,

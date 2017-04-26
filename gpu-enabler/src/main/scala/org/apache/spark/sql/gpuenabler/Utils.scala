@@ -169,7 +169,7 @@ object Utils {
                           args: Array[AnyRef],
                           outputArraySizes: Seq[Int] = null): T =  {
 
-      val ds1 = Dataset[T](ds.sparkSession,
+       val ds1 = Dataset[T](ds.sparkSession,
         MAPGPU[T, T](cf, args, outputArraySizes,
           ds.logicalPlan))
 
@@ -183,6 +183,15 @@ object Utils {
       }
 
       GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(lp)
+      ds
+    }
+
+    def uncacheGPU(): Dataset[T] = {
+      val lp = ds.queryExecution.optimizedPlan transform {
+        case SerializeFromObject(_, lp) => lp
+      }
+
+      GPUSparkEnv.get.gpuMemoryManager.unCacheGPUSlaves(lp)
       ds
     }
 
