@@ -37,7 +37,8 @@ abstract class JCUDAInterface {
   def hasNext() : Boolean
   def next() : InternalRow
   def init(itr : java.util.Iterator[InternalRow], args: Array[AnyRef],size : Int,
-           cached: Int, gpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]])
+           cached: Int, gpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]],
+           userGridSizes: Array[Int], userBlockSizes: Array[Int], stages: Int)
 }
 
 /**
@@ -466,11 +467,35 @@ object JCUDACodeGen extends Logging {
     codeBody.dropRight(1).toString()
   }
 
+  def getUserDimensions(numElements: Int): (Int, Array[Int], Array[Int]) = {
+    val stagesCount: Int = localCF.stagesCount match {
+      case Some(getCount) => getCount(numElements)
+      case None => 1
+    }
+
+    val gpuBlockSizeList = Array.fill(stagesCount){0}
+    val gpuGridSizeList = Array.fill(stagesCount){0}
+
+    (0 to stagesCount-1).foreach(idx => {
+      val (gpuGridSize, gpuBlockSize) = localCF.dimensions match {
+        case Some(computeDim) => computeDim(numElements, idx)
+        case None => (0,0) // Compute this in the executor nodes
+      }
+      gpuBlockSizeList(idx) = gpuBlockSize
+      gpuGridSizeList(idx) = gpuGridSize
+    })
+
+    (stagesCount, gpuGridSizeList, gpuBlockSizeList)
+  }
+
+  var localCF: DSCUDAFunction = _
+
   def generate(inputSchema : StructType, outputSchema : StructType,
                    cf : DSCUDAFunction, args: Array[AnyRef],
                outputArraySizes: Seq[Int]) : JCUDAInterface = {
 
     val ctx = new CodegenContext()
+    localCF = cf
 
     val variables = createVariables(inputSchema,outputSchema,cf,args,outputArraySizes, ctx)
     val debugMode = !SparkEnv.get.conf.get("DebugMode","").isEmpty
@@ -487,6 +512,9 @@ object JCUDACodeGen extends Logging {
         |import jcuda.driver.CUdeviceptr;
         |import jcuda.driver.CUfunction;
         |import jcuda.driver.CUmodule;
+        |import jcuda.driver.CUdevice;
+        |import jcuda.driver.JCudaDriver;
+        |import jcuda.driver.CUdevice_attribute;
         |import org.apache.spark.sql.catalyst.InternalRow;
         |import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
         |import org.apache.spark.sql.gpuenabler.JCUDAInterface;
@@ -544,6 +572,9 @@ object JCUDACodeGen extends Logging {
 	|        private List<Map<String,CUdeviceptr>> gpuPtrs;
         | 	 private Map<String, CUdeviceptr> inputCMap;
         |        private Map<String, CUdeviceptr> outputCMap;
+        |        private int[] blockSizeX;
+        |        private int[] gridSizeX;
+        |        private int stages;
         |
         |        ${getStmt(variables,List("declareHost","declareDevice"),"\n")}
         |
@@ -556,7 +587,7 @@ object JCUDACodeGen extends Logging {
         |    }
         |
 	|    public void init(Iterator<InternalRow> inp, Object inprefs[], int size, int cached,
-	|             List<Map<String,CUdeviceptr>> gpuPtrs) {
+	|             List<Map<String,CUdeviceptr>> gpuPtrs, int[] userGridSizes, int[] userBlockSizes, int stages) {
 	|        inpitr = inp;
 	|        numElements = size;
 	|        hasNextLoop = ${cf.outputSize.getOrElse("numElements")};
@@ -564,7 +595,6 @@ object JCUDACodeGen extends Logging {
 	|        refs = inprefs;
 	|        this.cached = cached;
 	|        this.gpuPtrs = gpuPtrs;
-	|
 	|        if (cached == 1) {
 	|           outputCMap = (Map<String, CUdeviceptr>)gpuPtrs.get(0);
 	|        }
@@ -572,6 +602,9 @@ object JCUDACodeGen extends Logging {
 	|        if (cached == 2) {
 	|           inputCMap = (Map<String, CUdeviceptr>) gpuPtrs.get(1);
 	|        }
+	|	 gridSizeX = userGridSizes;
+	|        blockSizeX = userBlockSizes;
+	|        this.stages = stages;
 	|    }
         |
         |    public boolean hasNext() {
@@ -602,6 +635,20 @@ object JCUDACodeGen extends Logging {
         |    public void processGPU() {
         |       inpitr.hasNext();
         |       CUmodule module = GPUSparkEnv.get().cudaManager().getModule("${cf.resource}");
+	| ${ if (cf.stagesCount == None) {
+          """| blockSizeX = new int[1];
+             | gridSizeX = new int[1];
+             |
+             | CUdevice dev = new CUdevice();
+             | JCudaDriver.cuCtxGetDevice(dev);
+             | int dim[] = new int[1];
+             | JCudaDriver.cuDeviceGetAttribute(dim, CUdevice_attribute.CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X, dev);
+             |
+             | blockSizeX[0] = dim[0];
+             | gridSizeX[0] = (int) Math.ceil((double) numElements / blockSizeX[0]);
+        """.stripMargin
+	      } else "" }
+	|
         |
         |       // Obtain a function pointer to the ${cf.funcName} function.
         |       CUfunction function = new CUfunction();
@@ -622,24 +669,81 @@ object JCUDACodeGen extends Logging {
         |       // Copy data from Host to Device
         |       ${getStmt(variables,List("memcpyH2D"),"")}
         |
-        |       Pointer kernelParameters = Pointer.to(
-        |        Pointer.to(new int[]{numElements})
-        |        ${getStmt(variables,List("kernel-param"),"")}
-        |       );
+        | ${
+            if (cf.stagesCount == None) {
+              s"""
+                 |  Pointer kernelParameters = Pointer.to(
+                 |    Pointer.to(new int[]{numElements})
+                 |    ${getStmt(variables, List("kernel-param"), "")}
+                 |  );
+                 |
+                 |  // Call the kernel function.
+                 |  cuLaunchKernel(function,
+                 |    gridSizeX[0], 1, 1,      // Grid dimension
+                 |    blockSizeX[0], 1, 1,      // Block dimension
+                 |    0, null,               // Shared memory size and stream
+                 |    kernelParameters, null // Kernel- and extra parameters
+                 |  );
+                 |  cuCtxSynchronize();
+               """.stripMargin
+	   } else {
+              s"""
+                 |
+                 |  CUdeviceptr pinMemPtr_StageNum = new CUdeviceptr();
+                 |  CUdeviceptr pinMemPtr_TotalStages = new CUdeviceptr();
+                 |
+                 |  cuMemAllocHost(pinMemPtr_StageNum, Sizeof.LONG );
+                 |  cuMemAllocHost(pinMemPtr_TotalStages, Sizeof.LONG );
+                 |
+                 |  ByteBuffer gpuInputTotalStages = pinMemPtr_TotalStages.getByteBuffer(0,Sizeof.LONG)
+                 |                            .order(ByteOrder.LITTLE_ENDIAN);
+                 |  ByteBuffer gpuInputStageNum = pinMemPtr_StageNum.getByteBuffer(0,Sizeof.LONG)
+                 |                            .order(ByteOrder.LITTLE_ENDIAN);
+                 |
+                 |  CUdeviceptr gpuDeviceTotalStages = new CUdeviceptr();
+                 |  CUdeviceptr gpuDeviceStageNum = new CUdeviceptr();
+                 |
+                 |  cuMemAlloc(gpuDeviceTotalStages, Sizeof.LONG);
+                 |  cuMemAlloc(gpuDeviceStageNum, Sizeof.LONG);
+                 |
+                 |  gpuInputTotalStages.putLong(stages);
+                 |  cuMemcpyHtoD(gpuDeviceTotalStages,Pointer.to(gpuInputTotalStages), Sizeof.LONG);
+                 |  gpuInputTotalStages.flip();
+                 |
+                 | for (int stage = 0; stage < stages; stage++) {
+                 |    gpuInputStageNum.putLong(stage);
+                 |    gpuInputStageNum.flip();
+                 |    cuMemcpyHtoD(gpuDeviceStageNum,Pointer.to(gpuInputStageNum), Sizeof.LONG);
+                 |
+                 |    Pointer kernelParameters = Pointer.to(
+                 |      Pointer.to(new int[]{numElements})
+                 |      ${getStmt(variables, List("kernel-param"), "")}
+                 |      ,Pointer.to(gpuDeviceStageNum)   // Stage number
+                 |      ,Pointer.to(gpuDeviceTotalStages)   // Total Stages
+                 |    );
+                 |
+                 |    // Call the kernel function.
+                 |    cuLaunchKernel(function,
+                 |      gridSizeX[stage], 1, 1,      // Grid dimension
+                 |      blockSizeX[stage], 1, 1,      // Block dimension
+                 |      0, null,               // Shared memory size and stream
+                 |      kernelParameters, null // Kernel- and extra parameters
+                 |    );
+                 |
+                 |    cuCtxSynchronize();
+                 |    gpuInputStageNum.rewind();
+                 | }
+                 |
+                 | cuMemFree(gpuDeviceTotalStages);
+                 | cuMemFree(gpuDeviceStageNum);
+                 |
+                 | cuMemFreeHost(pinMemPtr_StageNum);
+                 | cuMemFreeHost(pinMemPtr_TotalStages);
+                 |
+               """.stripMargin
+           }
+        }
         |
-        |        // Call the kernel function.
-        |        int blockSizeX = 256;
-        |        int gridSizeX = (int) Math.ceil((double) numElements / blockSizeX);
-        |
-        |        cuLaunchKernel(function,
-        |                gridSizeX, 1, 1,      // Grid dimension
-        |                blockSizeX, 1, 1,      // Block dimension
-        |                0, null,               // Shared memory size and stream
-        |                kernelParameters, null // Kernel- and extra parameters
-        |        );
-        |
-        |
-        |        cuCtxSynchronize();
         |
         |        ${getStmt(variables,List("memcpyD2H"),"")}
         |
