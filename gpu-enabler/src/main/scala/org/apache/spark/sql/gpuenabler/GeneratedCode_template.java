@@ -85,7 +85,8 @@
 /* 085 */       arrayWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeArrayWriter();
 /* 086 */     }
 /* 087 */
-/* 088 */     public void init(Iterator<InternalRow> inp, Object ref[], int size,int cached, List<Map<String,CUdeviceptr>> gpuPtrs) {
+/* 088 */     public void init(Iterator<InternalRow> inp, Object ref[], int size,int cached, 
+                   List<Map<String,CUdeviceptr>> gpuPtrs, int[] userGridSizes, int[] userBlockSizes, int stages) {
 /* 089 */       inpitr = inp;
 /* 090 */       numElements = size;
 /* 091 */     }

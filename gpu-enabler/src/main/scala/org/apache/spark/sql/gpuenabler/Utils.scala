@@ -71,7 +71,9 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, args : Array[AnyRef],
         List(Map[String, CUdeviceptr]().asJava, Map[String, CUdeviceptr]().asJava).asJava
       }
 
-      buffer.init(list.toIterator.asJava,args,list.size, cached, imgpuPtrs)
+      val (stages, userGridSizes, userBlockSizes) = JCUDACodeGen.getUserDimensions(list.size)
+
+      buffer.init(list.toIterator.asJava,args,list.size, cached, imgpuPtrs, userGridSizes, userBlockSizes, stages)
 
       new Iterator[InternalRow] {
 	  // if (gpuPtrs != null) gpuPtrs.foreach(x=> if (x!= null) x.foreach(y => println("KEYS" + y._1)))
