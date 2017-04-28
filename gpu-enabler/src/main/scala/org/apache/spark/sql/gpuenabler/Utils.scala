@@ -57,8 +57,9 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, args : Array[AnyRef],
     val childRDD = child.execute()
 
     childRDD.mapPartitions{ iter =>
+      val constArgs = if (cf.constArgs != Seq.empty) cf.constArgs.toArray ++ args else args
       val buffer = JCUDACodeGen.generate(inputSchema,
-                     outputSchema,cf,args, outputArraySizes)
+                     outputSchema, cf, constArgs, outputArraySizes)
       val list = new mutable.ListBuffer[InternalRow]
       iter.foreach(x =>
         list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy())
@@ -73,7 +74,8 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, args : Array[AnyRef],
 
       val (stages, userGridSizes, userBlockSizes) = JCUDACodeGen.getUserDimensions(list.size)
 
-      buffer.init(list.toIterator.asJava,args,list.size, cached, imgpuPtrs, userGridSizes, userBlockSizes, stages)
+      buffer.init(list.toIterator.asJava, constArgs,
+                list.size, cached, imgpuPtrs, userGridSizes, userBlockSizes, stages)
 
       new Iterator[InternalRow] {
 	  // if (gpuPtrs != null) gpuPtrs.foreach(x=> if (x!= null) x.foreach(y => println("KEYS" + y._1)))
@@ -143,7 +145,7 @@ case class DSCUDAFunction(
                            _inputColumnsOrder: Seq[String] = null,
                            _outputColumnsOrder: Seq[String] = null,
                            resource: Any,
-                           constArgs: Seq[AnyVal] = Seq(),
+                           constArgs: Seq[AnyRef] = Seq(),
                            stagesCount: Option[Long => Int] = None,
                            dimensions: Option[(Long, Int) => (Int, Int)] = None,
                            outputSize: Option[Long] = None

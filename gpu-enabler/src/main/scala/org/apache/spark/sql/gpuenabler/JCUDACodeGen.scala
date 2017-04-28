@@ -375,15 +375,11 @@ object JCUDACodeGen extends Logging {
       x => {
         val dtype =
           x match {
-            case y: Array[Long] => {
-              (LongType, y.length)
-            }
-            case y: Array[Int] => {
-              (IntegerType, y.length)
-            }
-            case y: Array[Char] => {
-              (ByteType, y.length)
-            }
+            case y: Array[Long] => (LongType, y.length)
+            case y: Array[Int] => (IntegerType, y.length)
+            case y: Array[Double] => (DoubleType, y.length)
+            case y: Array[Float] => (FloatType, y.length)
+            case y: Array[Char] => (ByteType, y.length)
           }
 
         variables += Variable(cnt.toString(),
@@ -391,7 +387,7 @@ object JCUDACodeGen extends Logging {
           dtype._1,
           -1,
           -1,
-          dtype._2, cf.outputSize.getOrElse(0),
+          dtype._2, 0,
           ctx
         )
         cnt += 1
@@ -688,38 +684,12 @@ object JCUDACodeGen extends Logging {
                """.stripMargin
 	   } else {
               s"""
-                 |
-                 |  CUdeviceptr pinMemPtr_StageNum = new CUdeviceptr();
-                 |  CUdeviceptr pinMemPtr_TotalStages = new CUdeviceptr();
-                 |
-                 |  cuMemAllocHost(pinMemPtr_StageNum, Sizeof.LONG );
-                 |  cuMemAllocHost(pinMemPtr_TotalStages, Sizeof.LONG );
-                 |
-                 |  ByteBuffer gpuInputTotalStages = pinMemPtr_TotalStages.getByteBuffer(0,Sizeof.LONG)
-                 |                            .order(ByteOrder.LITTLE_ENDIAN);
-                 |  ByteBuffer gpuInputStageNum = pinMemPtr_StageNum.getByteBuffer(0,Sizeof.LONG)
-                 |                            .order(ByteOrder.LITTLE_ENDIAN);
-                 |
-                 |  CUdeviceptr gpuDeviceTotalStages = new CUdeviceptr();
-                 |  CUdeviceptr gpuDeviceStageNum = new CUdeviceptr();
-                 |
-                 |  cuMemAlloc(gpuDeviceTotalStages, Sizeof.LONG);
-                 |  cuMemAlloc(gpuDeviceStageNum, Sizeof.LONG);
-                 |
-                 |  gpuInputTotalStages.putLong(stages);
-                 |  cuMemcpyHtoD(gpuDeviceTotalStages,Pointer.to(gpuInputTotalStages), Sizeof.LONG);
-                 |  gpuInputTotalStages.flip();
-                 |
                  | for (int stage = 0; stage < stages; stage++) {
-                 |    gpuInputStageNum.putLong(stage);
-                 |    gpuInputStageNum.flip();
-                 |    cuMemcpyHtoD(gpuDeviceStageNum,Pointer.to(gpuInputStageNum), Sizeof.LONG);
-                 |
                  |    Pointer kernelParameters = Pointer.to(
                  |      Pointer.to(new int[]{numElements})
                  |      ${getStmt(variables, List("kernel-param"), "")}
-                 |      ,Pointer.to(gpuDeviceStageNum)   // Stage number
-                 |      ,Pointer.to(gpuDeviceTotalStages)   // Total Stages
+                 |      ,Pointer.to(new int[]{stage})
+                 |      ,Pointer.to(new int[]{stages})
                  |    );
                  |
                  |    // Call the kernel function.
@@ -731,15 +701,7 @@ object JCUDACodeGen extends Logging {
                  |    );
                  |
                  |    cuCtxSynchronize();
-                 |    gpuInputStageNum.rewind();
                  | }
-                 |
-                 | cuMemFree(gpuDeviceTotalStages);
-                 | cuMemFree(gpuDeviceStageNum);
-                 |
-                 | cuMemFreeHost(pinMemPtr_StageNum);
-                 | cuMemFreeHost(pinMemPtr_TotalStages);
-                 |
                """.stripMargin
            }
         }

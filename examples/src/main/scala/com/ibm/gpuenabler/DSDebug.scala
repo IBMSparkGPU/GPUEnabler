@@ -29,8 +29,8 @@ object DSDebug {
       case 1 => (256, 4)
     }
 
-    val dsFunc = DSCUDAFunction("arrayTestMod", Seq("factor", "arr"), Seq("result"), ptxURL,
-      Seq(), Some((size: Long) => 2), Some(dimensions))
+    val dsFunc = DSCUDAFunction("arrayTestModStages", Seq("factor", "arr"), Seq("result"), ptxURL,
+      Seq((1 to 35).map(_.toLong).toArray), Some((size: Long) => 2), Some(dimensions))
     val redFunc = DSCUDAFunction("arrayTestMod", Seq("ele", "result"), Seq("arr2"), ptxURL, outputSize = Some(1))
 
     if(args.length > 0) {
