@@ -2,9 +2,7 @@ package com.ibm.gpuenabler
 
 import org.apache.spark.sql.{Column, SQLContext}
 import org.apache.spark.{SparkConf, SparkContext, SparkEnv}
-import org.apache.spark.sql.gpuenabler.Utils._
-import org.apache.spark.sql.gpuenabler._
-
+import com.ibm.gpuenabler.CUDADSImplicits._
 
 object DSDebug {
 
@@ -38,14 +36,14 @@ object DSDebug {
       SparkEnv.get.conf.set("DebugMode", args(0))
     }
 
-    val ds = ss.read.json(Utils.homeDir + "GPUEnabler/examples/src/main/resources/data.json").as[data];
+    val ds = ss.read.json("src/main/resources/data.json").as[data];
 
-    val gpuDS = ds.mapGPU(x=> data1(x.ele, x.name, x.arr2, x.arr.map(y => y * x.factor * 100)),
+    val gpuDS = ds.mapExtFunc(x=> data1(x.ele, x.name, x.arr2, x.arr.map(y => y * x.factor * 100)),
       dsFunc,
       Array((1 to 10).map(_ * 3).toArray, (1 to 35).map(_.toLong).toArray),
       Seq(3)).cacheGPU()
 
-    val result = gpuDS.reduceGPU((d1: data1, d2: data1) => data1((d1.ele + d2.ele), d1.name, d1.arr2, d1.result), redFunc,
+    val result = gpuDS.reduceExtFunc((d1: data1, d2: data1) => data1((d1.ele + d2.ele), d1.name, d1.arr2, d1.result), redFunc,
       Array((1 to 10).map(_ * 3).toArray, (1 to 35).map(_.toLong).toArray))
 
     println(s"RESULT ${result.ele}")
