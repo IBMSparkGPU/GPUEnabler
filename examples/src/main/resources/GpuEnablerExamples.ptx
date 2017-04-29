@@ -37,7 +37,8 @@
 .global .align 1 .b8 $str7[51] = {65, 114, 114, 97, 121, 84, 101, 115, 116, 32, 32, 91, 37, 108, 100, 93, 32, 42, 32, 91, 37, 108, 100, 32, 37, 108, 100, 32, 37, 108, 100, 93, 32, 61, 32, 91, 37, 108, 100, 32, 37, 108, 100, 32, 37, 108, 100, 93, 32, 10, 0};
 .global .align 1 .b8 $str8[43] = {65, 114, 114, 97, 121, 84, 101, 115, 116, 32, 32, 91, 37, 108, 100, 93, 32, 42, 32, 91, 37, 108, 100, 32, 37, 108, 100, 32, 37, 108, 100, 93, 32, 61, 32, 91, 37, 108, 100, 93, 32, 10, 0};
 .global .align 1 .b8 $str9[37] = {78, 32, 58, 32, 37, 100, 44, 32, 115, 116, 97, 103, 101, 58, 32, 37, 100, 44, 32, 116, 111, 116, 97, 108, 115, 116, 97, 103, 101, 115, 58, 32, 37, 100, 32, 10, 0};
-.global .align 1 .b8 $str10[28] = {73, 110, 32, 70, 105, 120, 101, 100, 32, 99, 111, 110, 115, 116, 32, 37, 108, 100, 32, 46, 46, 32, 37, 108, 100, 32, 10, 0};
+.global .align 1 .b8 $str10[26] = {73, 110, 32, 111, 117, 116, 112, 117, 116, 65, 114, 114, 97, 121, 83, 105, 122, 101, 32, 58, 32, 37, 100, 32, 10, 0};
+.global .align 1 .b8 $str11[28] = {73, 110, 32, 70, 105, 120, 101, 100, 32, 99, 111, 110, 115, 116, 32, 37, 108, 100, 32, 46, 46, 32, 37, 108, 100, 32, 10, 0};
 
 .visible .entry multiplyBy2(
 	.param .u64 multiplyBy2_param_0,
@@ -937,20 +938,21 @@ BB7_2:
 	.param .u64 arrayTestModStages_param_4,
 	.param .u64 arrayTestModStages_param_5,
 	.param .u64 arrayTestModStages_param_6,
-	.param .u32 arrayTestModStages_param_7,
-	.param .u32 arrayTestModStages_param_8
+	.param .u64 arrayTestModStages_param_7,
+	.param .u32 arrayTestModStages_param_8,
+	.param .u32 arrayTestModStages_param_9
 )
 {
 	.local .align 8 .b8 	__local_depot8[40];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
 	.reg .pred 	%p<2>;
-	.reg .b32 	%r<18>;
-	.reg .b64 	%rd<40>;
+	.reg .b32 	%r<20>;
+	.reg .b64 	%rd<44>;
 
 
-	mov.u64 	%rd39, __local_depot8;
-	cvta.local.u64 	%SP, %rd39;
+	mov.u64 	%rd43, __local_depot8;
+	cvta.local.u64 	%SP, %rd43;
 	ld.param.u32 	%r1, [arrayTestModStages_param_0];
 	ld.param.u64 	%rd1, [arrayTestModStages_param_1];
 	ld.param.u64 	%rd2, [arrayTestModStages_param_2];
@@ -958,8 +960,9 @@ BB7_2:
 	ld.param.u64 	%rd4, [arrayTestModStages_param_4];
 	ld.param.u64 	%rd5, [arrayTestModStages_param_5];
 	ld.param.u64 	%rd6, [arrayTestModStages_param_6];
-	ld.param.u32 	%r2, [arrayTestModStages_param_7];
-	ld.param.u32 	%r3, [arrayTestModStages_param_8];
+	ld.param.u64 	%rd7, [arrayTestModStages_param_7];
+	ld.param.u32 	%r2, [arrayTestModStages_param_8];
+	ld.param.u32 	%r3, [arrayTestModStages_param_9];
 	mov.u32 	%r4, %ntid.x;
 	mov.u32 	%r5, %ctaid.x;
 	mul.lo.s32 	%r6, %r4, %r5;
@@ -968,26 +971,26 @@ BB7_2:
 	setp.ne.s32	%p1, %r6, %r8;
 	@%p1 bra 	BB8_2;
 
-	cvta.to.global.u64 	%rd7, %rd1;
-	cvta.to.global.u64 	%rd8, %rd2;
-	cvta.to.global.u64 	%rd9, %rd5;
+	cvta.to.global.u64 	%rd8, %rd1;
+	cvta.to.global.u64 	%rd9, %rd2;
 	cvta.to.global.u64 	%rd10, %rd4;
 	cvta.to.global.u64 	%rd11, %rd3;
-	add.u64 	%rd12, %SP, 0;
-	cvta.to.local.u64 	%rd13, %rd12;
-	st.local.u32 	[%rd13], %r1;
-	st.local.u32 	[%rd13+4], %r2;
-	st.local.u32 	[%rd13+8], %r3;
-	mov.u64 	%rd14, $str9;
-	cvta.global.u64 	%rd15, %rd14;
+	cvta.to.global.u64 	%rd12, %rd6;
+	add.u64 	%rd13, %SP, 0;
+	cvta.to.local.u64 	%rd14, %rd13;
+	st.local.u32 	[%rd14], %r1;
+	st.local.u32 	[%rd14+4], %r2;
+	st.local.u32 	[%rd14+8], %r3;
+	mov.u64 	%rd15, $str9;
+	cvta.global.u64 	%rd16, %rd15;
 	// Callseq Start 15
 	{
 	.reg .b32 temp_param_reg;
 	// <end>}
 	.param .b64 param0;
-	st.param.b64	[param0+0], %rd15;
+	st.param.b64	[param0+0], %rd16;
 	.param .b64 param1;
-	st.param.b64	[param1+0], %rd12;
+	st.param.b64	[param1+0], %rd13;
 	.param .b32 retval0;
 	call.uni (retval0), 
 	vprintf, 
@@ -999,45 +1002,19 @@ BB7_2:
 	
 	//{
 	}// Callseq End 15
-	st.local.u32 	[%rd13], %r1;
-	st.local.u64 	[%rd13+8], %rd1;
-	st.local.u64 	[%rd13+16], %rd2;
-	st.local.u64 	[%rd13+24], %rd6;
-	mov.u64 	%rd16, $str4;
-	cvta.global.u64 	%rd17, %rd16;
+	cvta.to.global.u64 	%rd17, %rd5;
+	ld.global.u32 	%r10, [%rd17];
+	st.local.u32 	[%rd14], %r10;
+	mov.u64 	%rd18, $str10;
+	cvta.global.u64 	%rd19, %rd18;
 	// Callseq Start 16
 	{
 	.reg .b32 temp_param_reg;
 	// <end>}
 	.param .b64 param0;
-	st.param.b64	[param0+0], %rd17;
+	st.param.b64	[param0+0], %rd19;
 	.param .b64 param1;
-	st.param.b64	[param1+0], %rd12;
-	.param .b32 retval0;
-	call.uni (retval0), 
-	vprintf, 
-	(
-	param0, 
-	param1
-	);
-	ld.param.b32	%r10, [retval0+0];
-	
-	//{
-	}// Callseq End 16
-	ld.global.u64 	%rd18, [%rd11];
-	ld.global.u64 	%rd19, [%rd11+272];
-	st.local.u64 	[%rd13], %rd18;
-	st.local.u64 	[%rd13+8], %rd19;
-	mov.u64 	%rd20, $str10;
-	cvta.global.u64 	%rd21, %rd20;
-	// Callseq Start 17
-	{
-	.reg .b32 temp_param_reg;
-	// <end>}
-	.param .b64 param0;
-	st.param.b64	[param0+0], %rd21;
-	.param .b64 param1;
-	st.param.b64	[param1+0], %rd12;
+	st.param.b64	[param1+0], %rd13;
 	.param .b32 retval0;
 	call.uni (retval0), 
 	vprintf, 
@@ -1048,23 +1025,46 @@ BB7_2:
 	ld.param.b32	%r11, [retval0+0];
 	
 	//{
+	}// Callseq End 16
+	st.local.u32 	[%rd14], %r1;
+	st.local.u64 	[%rd14+8], %rd1;
+	st.local.u64 	[%rd14+16], %rd2;
+	st.local.u64 	[%rd14+24], %rd7;
+	mov.u64 	%rd20, $str4;
+	cvta.global.u64 	%rd21, %rd20;
+	// Callseq Start 17
+	{
+	.reg .b32 temp_param_reg;
+	// <end>}
+	.param .b64 param0;
+	st.param.b64	[param0+0], %rd21;
+	.param .b64 param1;
+	st.param.b64	[param1+0], %rd13;
+	.param .b32 retval0;
+	call.uni (retval0), 
+	vprintf, 
+	(
+	param0, 
+	param1
+	);
+	ld.param.b32	%r12, [retval0+0];
+	
+	//{
 	}// Callseq End 17
-	ld.global.u32 	%r12, [%rd10];
-	ld.global.u32 	%r13, [%rd10+4];
-	ld.global.u32 	%r14, [%rd10+8];
-	st.local.u32 	[%rd13], %r12;
-	st.local.u32 	[%rd13+4], %r13;
-	st.local.u32 	[%rd13+8], %r14;
-	mov.u64 	%rd22, $str5;
-	cvta.global.u64 	%rd23, %rd22;
+	ld.global.u64 	%rd22, [%rd12];
+	ld.global.u64 	%rd23, [%rd12+272];
+	st.local.u64 	[%rd14], %rd22;
+	st.local.u64 	[%rd14+8], %rd23;
+	mov.u64 	%rd24, $str11;
+	cvta.global.u64 	%rd25, %rd24;
 	// Callseq Start 18
 	{
 	.reg .b32 temp_param_reg;
 	// <end>}
 	.param .b64 param0;
-	st.param.b64	[param0+0], %rd23;
+	st.param.b64	[param0+0], %rd25;
 	.param .b64 param1;
-	st.param.b64	[param1+0], %rd12;
+	st.param.b64	[param1+0], %rd13;
 	.param .b32 retval0;
 	call.uni (retval0), 
 	vprintf, 
@@ -1072,61 +1072,26 @@ BB7_2:
 	param0, 
 	param1
 	);
-	ld.param.b32	%r15, [retval0+0];
+	ld.param.b32	%r13, [retval0+0];
 	
 	//{
 	}// Callseq End 18
-	ld.global.u64 	%rd24, [%rd9];
-	ld.global.u64 	%rd25, [%rd9+8];
-	ld.global.u64 	%rd26, [%rd9+16];
-	st.local.u64 	[%rd13], %rd24;
-	st.local.u64 	[%rd13+8], %rd25;
-	st.local.u64 	[%rd13+16], %rd26;
-	mov.u64 	%rd27, $str6;
-	cvta.global.u64 	%rd28, %rd27;
+	ld.global.u32 	%r14, [%rd11];
+	ld.global.u32 	%r15, [%rd11+4];
+	ld.global.u32 	%r16, [%rd11+8];
+	st.local.u32 	[%rd14], %r14;
+	st.local.u32 	[%rd14+4], %r15;
+	st.local.u32 	[%rd14+8], %r16;
+	mov.u64 	%rd26, $str5;
+	cvta.global.u64 	%rd27, %rd26;
 	// Callseq Start 19
 	{
 	.reg .b32 temp_param_reg;
 	// <end>}
 	.param .b64 param0;
-	st.param.b64	[param0+0], %rd28;
+	st.param.b64	[param0+0], %rd27;
 	.param .b64 param1;
-	st.param.b64	[param1+0], %rd12;
-	.param .b32 retval0;
-	call.uni (retval0), 
-	vprintf, 
-	(
-	param0, 
-	param1
-	);
-	ld.param.b32	%r16, [retval0+0];
-	
-	//{
-	}// Callseq End 19
-	ld.global.u64 	%rd29, [%rd7];
-	ld.global.u64 	%rd30, [%rd8];
-	mul.lo.s64 	%rd31, %rd29, %rd30;
-	cvta.to.global.u64 	%rd32, %rd6;
-	st.global.u64 	[%rd32], %rd31;
-	ld.global.u64 	%rd33, [%rd7];
-	ld.global.u64 	%rd34, [%rd8];
-	ld.global.u64 	%rd35, [%rd8+8];
-	ld.global.u64 	%rd36, [%rd8+16];
-	st.local.u64 	[%rd13], %rd33;
-	st.local.u64 	[%rd13+8], %rd34;
-	st.local.u64 	[%rd13+16], %rd35;
-	st.local.u64 	[%rd13+24], %rd36;
-	st.local.u64 	[%rd13+32], %rd31;
-	mov.u64 	%rd37, $str8;
-	cvta.global.u64 	%rd38, %rd37;
-	// Callseq Start 20
-	{
-	.reg .b32 temp_param_reg;
-	// <end>}
-	.param .b64 param0;
-	st.param.b64	[param0+0], %rd38;
-	.param .b64 param1;
-	st.param.b64	[param1+0], %rd12;
+	st.param.b64	[param1+0], %rd13;
 	.param .b32 retval0;
 	call.uni (retval0), 
 	vprintf, 
@@ -1137,7 +1102,69 @@ BB7_2:
 	ld.param.b32	%r17, [retval0+0];
 	
 	//{
+	}// Callseq End 19
+	ld.global.u64 	%rd28, [%rd10];
+	ld.global.u64 	%rd29, [%rd10+8];
+	ld.global.u64 	%rd30, [%rd10+16];
+	st.local.u64 	[%rd14], %rd28;
+	st.local.u64 	[%rd14+8], %rd29;
+	st.local.u64 	[%rd14+16], %rd30;
+	mov.u64 	%rd31, $str6;
+	cvta.global.u64 	%rd32, %rd31;
+	// Callseq Start 20
+	{
+	.reg .b32 temp_param_reg;
+	// <end>}
+	.param .b64 param0;
+	st.param.b64	[param0+0], %rd32;
+	.param .b64 param1;
+	st.param.b64	[param1+0], %rd13;
+	.param .b32 retval0;
+	call.uni (retval0), 
+	vprintf, 
+	(
+	param0, 
+	param1
+	);
+	ld.param.b32	%r18, [retval0+0];
+	
+	//{
 	}// Callseq End 20
+	ld.global.u64 	%rd33, [%rd8];
+	ld.global.u64 	%rd34, [%rd9];
+	mul.lo.s64 	%rd35, %rd33, %rd34;
+	cvta.to.global.u64 	%rd36, %rd7;
+	st.global.u64 	[%rd36], %rd35;
+	ld.global.u64 	%rd37, [%rd8];
+	ld.global.u64 	%rd38, [%rd9];
+	ld.global.u64 	%rd39, [%rd9+8];
+	ld.global.u64 	%rd40, [%rd9+16];
+	st.local.u64 	[%rd14], %rd37;
+	st.local.u64 	[%rd14+8], %rd38;
+	st.local.u64 	[%rd14+16], %rd39;
+	st.local.u64 	[%rd14+24], %rd40;
+	st.local.u64 	[%rd14+32], %rd35;
+	mov.u64 	%rd41, $str8;
+	cvta.global.u64 	%rd42, %rd41;
+	// Callseq Start 21
+	{
+	.reg .b32 temp_param_reg;
+	// <end>}
+	.param .b64 param0;
+	st.param.b64	[param0+0], %rd42;
+	.param .b64 param1;
+	st.param.b64	[param1+0], %rd13;
+	.param .b32 retval0;
+	call.uni (retval0), 
+	vprintf, 
+	(
+	param0, 
+	param1
+	);
+	ld.param.b32	%r19, [retval0+0];
+	
+	//{
+	}// Callseq End 21
 
 BB8_2:
 	ret;

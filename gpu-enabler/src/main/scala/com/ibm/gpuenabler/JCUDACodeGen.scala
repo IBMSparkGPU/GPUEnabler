@@ -371,7 +371,7 @@ object JCUDACodeGen extends _Logging {
       }
     }
 
-    if (outputArraySizes == null) {
+    if (outputArraySizes.isEmpty) {
       cf._outputColumnsOrder.foreach {
         x => {
           val outIdx = findSchemaIndex(outputSchema, x)
@@ -467,7 +467,7 @@ object JCUDACodeGen extends _Logging {
 
   def generate(inputSchema : StructType, outputSchema : StructType,
                    cf : DSCUDAFunction, args: Array[AnyRef],
-               outputArraySizes: Seq[Int]) : JCUDAInterface = {
+               outputArraySizes: Array[Int]) : JCUDAInterface = {
 
     val ctx = new CodegenContext()
     localCF = cf
