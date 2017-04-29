@@ -31,7 +31,7 @@ import scala.collection.mutable
 import org.apache.spark.sql.gpuenabler.CUDAUtils._
 
 case class MAPGPUExec[T, U](cf: DSCUDAFunction, args : Array[AnyRef],
-                            outputArraySizes: Seq[Int],
+                            outputArraySizes: Array[Int],
                             child: SparkPlan,
                             inputEncoder: Encoder[T], outputEncoder: Encoder[U],
                             outputObjAttr: Attribute,
@@ -57,8 +57,8 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, args : Array[AnyRef],
     val childRDD = child.execute()
 
     childRDD.mapPartitions{ iter =>
-
-      val constArgs = if (cf.constArgs != Seq.empty)  cf.constArgs.toArray ++ args else args
+      val tmp_constArgs = if (! outputArraySizes.isEmpty) args ++ Array(outputArraySizes) else args
+      val constArgs: Array[AnyRef] = if (! cf.constArgs.isEmpty)  tmp_constArgs ++ cf.constArgs else tmp_constArgs
 
       val buffer = JCUDACodeGen.generate(inputSchema,
                      outputSchema,cf,constArgs, outputArraySizes)
@@ -96,7 +96,7 @@ object MAPGPU
   def apply[T: Encoder, U : Encoder](
                                       func: DSCUDAFunction,
                                       args : Array[AnyRef],
-                                      outputArraySizes: Seq[Int],
+                                      outputArraySizes: Array[Int],
                                       child: LogicalPlan) : LogicalPlan = {
     val deserialized = CatalystSerde.deserialize[T](child)
     val mapped = MAPGPU(
@@ -113,7 +113,7 @@ object MAPGPU
 
 case class MAPGPU[T: Encoder, U : Encoder](func: DSCUDAFunction,
                                            args : Array[AnyRef],
-                                           outputArraySizes: Seq[Int],
+                                           outputArraySizes: Array[Int],
                                            child: LogicalPlan,
                                            inputEncoder: Encoder[T], outputEncoder: Encoder[U],
                                            outputObjAttr: Attribute)
@@ -147,7 +147,7 @@ case class DSCUDAFunction(
                            _inputColumnsOrder: Seq[String] = null,
                            _outputColumnsOrder: Seq[String] = null,
                            resource: Any,
-                           constArgs: Seq[AnyRef] = Seq(),
+                           constArgs: Array[AnyRef] = Array.empty,
                            stagesCount: Option[Long => Int] = None,
                            dimensions: Option[(Long, Int) => (Int, Int)] = None,
                            outputSize: Option[Long] = None
@@ -172,7 +172,7 @@ object CUDADSImplicits {
     def mapExtFunc[U:Encoder](func: T => U,
                           cf: DSCUDAFunction,
                           args: Array[AnyRef],
-                          outputArraySizes: Seq[Int] = null): Dataset[U] =  {
+                          outputArraySizes: Array[Int] = Array.empty): Dataset[U] =  {
 
       DS[U](ds.sparkSession,
           MAPGPU[T, U](cf, args, outputArraySizes,
@@ -182,7 +182,7 @@ object CUDADSImplicits {
     def reduceExtFunc(func: (T, T) => T,
                           cf: DSCUDAFunction,
                           args: Array[AnyRef],
-                          outputArraySizes: Seq[Int] = null): T =  {
+                          outputArraySizes: Array[Int] = Array.empty): T =  {
 
       val ds1 = DS[T](ds.sparkSession,
         MAPGPU[T, T](cf, args, outputArraySizes,

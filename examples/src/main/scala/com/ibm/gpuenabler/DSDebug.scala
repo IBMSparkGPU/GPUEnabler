@@ -28,7 +28,7 @@ object DSDebug {
     }
 
     val dsFunc = DSCUDAFunction("arrayTestModStages", Seq("factor", "arr"), Seq("result"), ptxURL,
-      Seq((1 to 35).map(_.toLong).toArray), Some((size: Long) => 2), Some(dimensions))
+      Array((1 to 35).map(_.toLong).toArray), Some((size: Long) => 2), Some(dimensions))
     val redFunc = DSCUDAFunction("arrayTestMod", Seq("ele", "result"), Seq("arr2"), ptxURL, outputSize = Some(1))
 
     if(args.length > 0) {
@@ -41,7 +41,7 @@ object DSDebug {
     val gpuDS = ds.mapExtFunc(x=> data1(x.ele, x.name, x.arr2, x.arr.map(y => y * x.factor * 100)),
       dsFunc,
       Array((1 to 10).map(_ * 3).toArray, (1 to 35).map(_.toLong).toArray),
-      Seq(3)).cacheGPU()
+      Array(3)).cacheGPU()
 
     val result = gpuDS.reduceExtFunc((d1: data1, d2: data1) => data1((d1.ele + d2.ele), d1.name, d1.arr2, d1.result), redFunc,
       Array((1 to 10).map(_ * 3).toArray, (1 to 35).map(_.toLong).toArray))
