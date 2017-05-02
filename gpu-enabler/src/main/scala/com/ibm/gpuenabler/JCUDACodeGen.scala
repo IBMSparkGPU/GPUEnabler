@@ -78,22 +78,23 @@ object JCUDACodeGen extends _Logging {
 
     if(is(CONST))
       size = s"$length * Sizeof.${javaType.toUpperCase()}"
-    else if (outputSize != 0 && is(GPUOUTPUT))
-      size = s"$outputSize * Sizeof.${javaType.toUpperCase()}"
-    else
-      size = s"numElements * Sizeof.${javaType.toUpperCase()}"
-
-    dataType match {
-      case ArrayType(d, _) =>
-        isArray = true
-        arrayType = d
-        boxType = ctx.boxedType(d)
-        javaType = ctx.javaType(d)
-        if (outputSize != 0 && is(GPUOUTPUT))
-          size = s"$outputSize * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
-        else
-          size = s"numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
-      case _ =>
+    else {
+      dataType match {
+        case ArrayType(d, _) =>
+          isArray = true
+          arrayType = d
+          boxType = ctx.boxedType(d)
+          javaType = ctx.javaType(d)
+          if (outputSize != 0 && is(GPUOUTPUT))
+            size = s"$outputSize * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
+          else
+            size = s"numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
+        case _ => 
+          if (outputSize != 0 && is(GPUOUTPUT))
+            size = s"$outputSize * Sizeof.${javaType.toUpperCase()}"
+          else
+            size = s"numElements * Sizeof.${javaType.toUpperCase()}"
+      }
     }
 
     if(boxType.eq("Integer")) boxType = "Int"
@@ -341,7 +342,8 @@ object JCUDACodeGen extends _Logging {
           inputSchema(inIdx).dataType,
           inIdx,
           outIdx,
-          1, cf.outputSize.getOrElse(0),
+          1,  // For Array input Variables, length will be determined at runtime.
+          0,  // Output Size is not applicable for input arguments.
           ctx
         )
       }
@@ -364,7 +366,8 @@ object JCUDACodeGen extends _Logging {
           dtype._1,
           -1,
           -1,
-          dtype._2, 0,
+          dtype._2,  // array length of the const arguments.
+          0,         // Output Size is not applicable for const arguments.
           ctx
         )
         cnt += 1
@@ -402,7 +405,7 @@ object JCUDACodeGen extends _Logging {
           outputSchema(outIdx).dataType,
           -1,
           outIdx,
-          col._2, //x.length.toLong, JOE - how to get partition count
+          col._2, // User provided Array output size
           cf.outputSize.getOrElse(0),
           ctx)
       })
