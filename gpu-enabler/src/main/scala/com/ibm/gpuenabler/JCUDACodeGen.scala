@@ -77,7 +77,7 @@ object JCUDACodeGen extends _Logging {
     }
 
     if(is(CONST))
-      size = s"$length * Sizeof.${javaType.toUpperCase()}"
+      size = s"Math.abs($length) * Sizeof.${javaType.toUpperCase()}"
     else {
       dataType match {
         case ArrayType(d, _) =>
@@ -100,7 +100,7 @@ object JCUDACodeGen extends _Logging {
     if(boxType.eq("Integer")) boxType = "Int"
 
     codeStmt += "declareHost" -> {
-      if (is(GPUINPUT) || is(GPUOUTPUT) || is(CONST)) {
+      if (is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1)) {
         s"""
          |private ByteBuffer $hostVariableName;
          |private CUdeviceptr pinMemPtr_$colName;
@@ -120,14 +120,14 @@ object JCUDACodeGen extends _Logging {
     }
 
     codeStmt += "declareDevice" -> {
-      if (is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
+      if (is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1))
         s"private CUdeviceptr $deviceVariableName;\n"
       else
         ""
     }
 
     codeStmt += "allocateHost" -> {
-      if(is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
+      if(is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1))
         s"""|pinMemPtr_$colName = new CUdeviceptr();
             |${
               if (isArray) {
@@ -162,7 +162,7 @@ object JCUDACodeGen extends _Logging {
     }
 
     codeStmt += "allocateDevice" -> {
-      if (is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
+      if (is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1))
         s"""|
             |if ( !${is(GPUINPUT)} || cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
             | $deviceVariableName = new CUdeviceptr();
@@ -207,10 +207,10 @@ object JCUDACodeGen extends _Logging {
         ""
     }
     codeStmt += "readFromConstArray" -> {
-      if(is(CONST)) {
+      if((is(CONST) && length != -1)) {
         s"""
          | for(int i = 0; i<$length; i++ ) {
-         |  $hostVariableName.put$boxType((($javaType[])refs[$colName])[i]);
+         |   $hostVariableName.put$boxType((($javaType[])refs[$colName])[i]);
          | }
        """.stripMargin
         }
@@ -220,7 +220,7 @@ object JCUDACodeGen extends _Logging {
 
 
     codeStmt += "flip" -> {
-      if(is(GPUINPUT) || is(CONST))
+      if(is(GPUINPUT) || (is(CONST) && length != -1))
         s"""
            |if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
            |  ${hostVariableName}.flip();
@@ -231,7 +231,7 @@ object JCUDACodeGen extends _Logging {
     }
 
     codeStmt += "memcpyH2D" ->{
-      if(is(GPUINPUT) || is(CONST))
+      if(is(GPUINPUT) || (is(CONST) && length != -1))
         s"""|if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
             |  cuMemcpyHtoD($deviceVariableName,
             |      Pointer.to($hostVariableName),
@@ -244,7 +244,10 @@ object JCUDACodeGen extends _Logging {
 
     codeStmt += "kernel-param" -> {
       if(is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
-        s",Pointer.to($deviceVariableName)\n"
+        if (!is(CONST) || length != -1)
+          s",Pointer.to($deviceVariableName)\n"
+        else  // Directly pass the constant values for primitives.
+          s",Pointer.to(new ${javaType}[]{(${ctx.boxedType(dataType)})refs[$colName]})\n"
       else
         ""
     }
@@ -258,7 +261,7 @@ object JCUDACodeGen extends _Logging {
 
     // Device memory will be freed immediatly.
     codeStmt += "FreeDeviceMemory" -> {
-      if(is(GPUINPUT) || is(GPUOUTPUT) || is(CONST)) {
+      if(is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1)) {
         if (is(GPUOUTPUT)) {
           s"""| if (cached == 1) {
             |   outputCMap.put("$deviceVariableName", $deviceVariableName);
@@ -276,7 +279,7 @@ object JCUDACodeGen extends _Logging {
 
     //Host Memory will be freed only after iterator completes.
     codeStmt += "FreeHostMemory" -> {
-      if (is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
+      if (is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1))
         s"""
            |if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
            |  cuMemFreeHost(pinMemPtr_$colName);
@@ -322,7 +325,7 @@ object JCUDACodeGen extends _Logging {
   }
 
   def createVariables(inputSchema : StructType, outputSchema : StructType,
-                      cf : DSCUDAFunction, args : Array[AnyRef],
+                      cf : DSCUDAFunction, args : Array[Any],
                       outputArraySizes: Seq[Int], ctx : CodegenContext): Array[Variable] = {
     // columns to be copied from inputRow to outputRow without gpu computation.
     val variables = ArrayBuffer.empty[Variable]
@@ -359,6 +362,11 @@ object JCUDACodeGen extends _Logging {
             case y: Array[Double] => (DoubleType, y.length)
             case y: Array[Float] => (FloatType, y.length)
             case y: Array[Char] => (ByteType, y.length)
+            case _: Long => (LongType, -1) //  -1 to indicate primitives
+            case _: Int => (IntegerType, -1)
+            case _: Double => (DoubleType, -1)
+            case _: Float => (FloatType, -1)
+            case _: Char => (ByteType, -1)
           }
 
         variables += Variable(cnt.toString,
@@ -469,8 +477,8 @@ object JCUDACodeGen extends _Logging {
   var localCF: DSCUDAFunction = _
 
   def generate(inputSchema : StructType, outputSchema : StructType,
-                   cf : DSCUDAFunction, args: Array[AnyRef],
-               outputArraySizes: Array[Int]) : JCUDAInterface = {
+                   cf : DSCUDAFunction, args: Array[Any],
+               outputArraySizes: Array[Int]) : JCUDACodegenIterator = {
 
     val ctx = new CodegenContext()
     localCF = cf
@@ -497,7 +505,7 @@ object JCUDACodeGen extends _Logging {
         |import jcuda.driver.JCudaDriver;
         |import org.apache.spark.sql.catalyst.InternalRow;
         |import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
-        |import com.ibm.gpuenabler.JCUDAInterface;
+        |import com.ibm.gpuenabler.JCUDACodegenIterator;
         |import org.apache.spark.unsafe.types.UTF8String;
         |
         |import java.nio.*;
@@ -508,49 +516,42 @@ object JCUDACodeGen extends _Logging {
         |import java.util.List;
         |
         |public class GeneratedCode_${cf.funcName} { // REMOVE
+	|   // Handle to call from compiled source
+	|   public JCUDACodegenIterator generate(Object[] references) {
+	|     JCUDACodegenIterator j = new JCUDAIteratorImpl();
+	|     return j;
+	|   }
+	| 
+        |  class JCUDAIteratorImpl extends JCUDACodegenIterator {
+        |    //Static variables
+        |    private Object[] references;
+        |    private UnsafeRow result;
+        |    private org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder holder;
+        |    private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter rowWriter;
+        |    private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeArrayWriter arrayWriter;
+        |    private Iterator<InternalRow> inpitr = null;
+        |    private boolean processed = false;
+        |    private boolean freeMemory = true;
+        |    private int idx = 0;
+        |    private int numElements = 0;
+        |    private int hasNextLoop = 0;
+        |    private Object refs[];
         |
-        |    // Handle to call from compiled source
-        |    public JCUDAInterface generate(Object[] references) {
-        |        JCUDAInterface j = new myJCUDAInterface();
-        |        return j;
-        |    }
+        |    // cached : 0 - NoCache;
+        |    // 1 - DS is cached; Hold GPU results in GPU
+        |    // 2 - child DS is cached; Use GPU results stored by child for input parameters
+        |    private int cached = 0;
+        |    private List<Map<String,CUdeviceptr>> gpuPtrs;
+        |    private Map<String, CUdeviceptr> inputCMap;
+        |    private Map<String, CUdeviceptr> outputCMap;
         |
-        |    //Handle to directly call from JCUDAVecAdd instance for debugging.
-        |    public JCUDAInterface generate() {
-        |        JCUDAInterface j = new myJCUDAInterface();
-        |        return j;
-        |    }
+        |    private int[] blockSizeX;
+        |    private int[] gridSizeX;
+        |    private int stages;
         |
-        |   class myJCUDAInterface extends JCUDAInterface {
-        |        //Static variables
-        |        private Object[] references;
-        |        private UnsafeRow result;
-        |        private org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder holder;
-        |        private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter rowWriter;
-        |        private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeArrayWriter arrayWriter;
-        |        private Iterator<InternalRow> inpitr = null;
-        |        private boolean processed = false;
-        |        private boolean freeMemory = true;
-        |        private int idx = 0;
-        |        private int numElements = 0;
-        |        private int hasNextLoop = 0;
-        |        private Object refs[];
+        |    ${getStmt(variables,List("declareHost","declareDevice"),"\n")}
         |
-        |        // cached : 0 - NoCache;
-        |        // 1 - DS is cached; Hold GPU results in GPU
-        |        // 2 - child DS is cached; Use GPU results stored by child for input parameters
-        |        private int cached = 0;
-        |        private List<Map<String,CUdeviceptr>> gpuPtrs;
-        |        private Map<String, CUdeviceptr> inputCMap;
-        |        private Map<String, CUdeviceptr> outputCMap;
-        |
-        |        private int[] blockSizeX;
-        |        private int[] gridSizeX;
-        |        private int stages;
-        |
-        |        ${getStmt(variables,List("declareHost","declareDevice"),"\n")}
-        |
-        |    public myJCUDAInterface() {
+        |    public JCUDAIteratorImpl() {
         |        result = new UnsafeRow(${getAttributes(outputSchema).length});
         |        this.holder = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(result, 32);
         |        this.rowWriter =
@@ -570,9 +571,6 @@ object JCUDACodeGen extends _Logging {
         |        this.cached = cached;
         |        this.gpuPtrs = gpuPtrs;
         |
-        |        // int blockSizeX = 256;
-        |        // int gridSizeX = (int) Math.ceil((double) numElements / blockSizeX);
-        |
         |        gridSizeX = userGridSizes;
         |        blockSizeX = userBlockSizes;
         |        this.stages = stages;
@@ -581,15 +579,14 @@ object JCUDACodeGen extends _Logging {
         |           outputCMap = (Map<String, CUdeviceptr>)gpuPtrs.get(0);
         |           if (gpuPtrs.get(0) != null) System.out.println("Output holder ready to be written");
         |           else System.out.println("ERROR for output holder");
+        |        }
         |
-        |         }
-        |
-        |         if (cached == 2) {
+        |        if (cached == 2) {
         |           inputCMap = (Map<String, CUdeviceptr>) gpuPtrs.get(1);
         |           System.out.println(inputCMap.toString());
         |           if (gpuPtrs.get(1) != null) System.out.println("Input holder ready to be read");
         |           else System.out.println("ERROR for input holder");
-        |         }
+        |        }
         |    }
         |
         |    public boolean hasNext() {
@@ -621,19 +618,19 @@ object JCUDACodeGen extends _Logging {
         |
         |       CUmodule module = GPUSparkEnv.get().cudaManager().getModule("${cf.resource}");
         |       inpitr.hasNext();
-        |         ${ if (cf.stagesCount.isEmpty) {
-          """| blockSizeX = new int[1];
-             | gridSizeX = new int[1];
-             |
-             | CUdevice dev = new CUdevice();
-             | JCudaDriver.cuCtxGetDevice(dev);
-             | int dim[] = new int[1];
-             | JCudaDriver.cuDeviceGetAttribute(dim, CUdevice_attribute.CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X, dev);
-             |
-             | blockSizeX[0] = dim[0];
-             | gridSizeX[0] = (int) Math.ceil((double) numElements / blockSizeX[0]);
-        """.stripMargin
-              } else "" }
+        |       ${ if (cf.stagesCount.isEmpty) {
+		 s"""| blockSizeX = new int[1];
+		     | gridSizeX = new int[1];
+		     |
+		     | CUdevice dev = new CUdevice();
+		     | JCudaDriver.cuCtxGetDevice(dev);
+		     | int dim[] = new int[1];
+		     | JCudaDriver.cuDeviceGetAttribute(dim, CUdevice_attribute.CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X, dev);
+		     |
+		     | blockSizeX[0] = dim[0];
+		     | gridSizeX[0] = (int) Math.ceil((double) numElements / blockSizeX[0]);
+		""".stripMargin
+                } else "" }
         |       // Obtain a function pointer to the ${cf.funcName} function.
         |       CUfunction function = new CUfunction();
         |       cuModuleGetFunction(function, module, "${cf.funcName}");
@@ -709,7 +706,7 @@ object JCUDACodeGen extends _Logging {
         |       return (InternalRow) result;
         |    }
         |  }
-        |} // REMOVE
+        |} // REMOVE 
       """.stripMargin
 
     val fpath = s"/tmp/GeneratedCode_${cf.funcName}.java"
@@ -730,13 +727,13 @@ object JCUDACodeGen extends _Logging {
 
       val code = codeBody.split("\n").filter(!_.contains("REMOVE")).map(_ + "\n").mkString
       val p = CodeGenerator.compile(new CodeAndComment(code, ctx.getPlaceHolderToComments())).
-        generate(ctx.references.toArray).asInstanceOf[JCUDAInterface]
+        generate(ctx.references.toArray).asInstanceOf[JCUDACodegenIterator]
 
       p
     }
   }
 
-  def generateFromFile(fpath : String) : JCUDAInterface = {
+  def generateFromFile(fpath : String) : JCUDACodegenIterator = {
 
     val ctx = new CodegenContext()
 
@@ -746,7 +743,7 @@ object JCUDACodeGen extends _Logging {
     val code = CodeFormatter.stripOverlappingComments(
       new CodeAndComment(codeBody, ctx.getPlaceHolderToComments()))
 
-    val p = CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[JCUDAInterface]
+    val p = CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[JCUDACodegenIterator]
     p
   }
 

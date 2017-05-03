@@ -23,10 +23,10 @@ import org.apache.spark.sql.catalyst.InternalRow
 /**
   * Interface for generated predicate
   */
-abstract class JCUDAInterface {
+abstract class JCUDACodegenIterator {
   def hasNext() : Boolean
   def next() : InternalRow
-  def init(itr : java.util.Iterator[InternalRow], args: Array[AnyRef],size : Int,
+  def init(itr : java.util.Iterator[InternalRow], args: Array[Any],size : Int,
            cached: Int, gpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]],
            userGridSizes: Array[Int], userBlockSizes: Array[Int], stages: Int)
 }
