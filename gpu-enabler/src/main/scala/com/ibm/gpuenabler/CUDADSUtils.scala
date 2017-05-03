@@ -30,7 +30,7 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable
 import org.apache.spark.sql.gpuenabler.CUDAUtils._
 
-case class MAPGPUExec[T, U](cf: DSCUDAFunction, args : Array[AnyRef],
+case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
                             outputArraySizes: Array[Int],
                             child: SparkPlan,
                             inputEncoder: Encoder[T], outputEncoder: Encoder[U],
@@ -57,35 +57,31 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, args : Array[AnyRef],
     val childRDD = child.execute()
 
     childRDD.mapPartitions{ iter =>
-      val tmp_constArgs = if (! outputArraySizes.isEmpty) args ++ Array(outputArraySizes) else args
-      val constArgs: Array[AnyRef] = if (! cf.constArgs.isEmpty)  tmp_constArgs ++ cf.constArgs else tmp_constArgs
-
-      val buffer = JCUDACodeGen.generate(inputSchema,
+      val jcudaIterator = JCUDACodeGen.generate(inputSchema,
                      outputSchema,cf,constArgs, outputArraySizes)
       val list = new mutable.ListBuffer[InternalRow]
       iter.foreach(x =>
         list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy())
 
-      val imgpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]] = if (cached == 1) {
-        List(gpuPtrs(0).asJava, Map[String, CUdeviceptr]().asJava).asJava
-      } else if (cached == 2) {
-        List(Map[String, CUdeviceptr]().asJava, gpuPtrs(1).asJava).asJava
-      } else {
-        List(Map[String, CUdeviceptr]().asJava, Map[String, CUdeviceptr]().asJava).asJava
+      // cached: 1 -> this logical plan is cached; 2 -> child logical plan is cached
+      val imgpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]] = cached match {
+        case 1 => List(gpuPtrs(0).asJava, Map[String, CUdeviceptr]().asJava).asJava
+        case 2 => List(Map[String, CUdeviceptr]().asJava, gpuPtrs(1).asJava).asJava
+        case _ => List(Map[String, CUdeviceptr]().asJava, Map[String, CUdeviceptr]().asJava).asJava
       }
 
       val (stages, userGridSizes, userBlockSizes) = JCUDACodeGen.getUserDimensions(list.size)
 
-      buffer.init(list.toIterator.asJava, constArgs,
+      jcudaIterator.init(list.toIterator.asJava, constArgs,
                 list.size, cached, imgpuPtrs, userGridSizes, userBlockSizes, stages)
 
       new Iterator[InternalRow] {
-        override def hasNext: Boolean = buffer.hasNext()
+        override def hasNext: Boolean = jcudaIterator.hasNext()
 
         override def next: InternalRow =
           InternalRow(outexprEnc
             .resolveAndBind(getAttributes(outputEncoder.schema))
-            .fromRow(buffer.next().copy()))
+            .fromRow(jcudaIterator.next().copy()))
       }
     }
   }
@@ -95,7 +91,7 @@ object MAPGPU
 {
   def apply[T: Encoder, U : Encoder](
                                       func: DSCUDAFunction,
-                                      args : Array[AnyRef],
+                                      args : Array[Any],
                                       outputArraySizes: Array[Int],
                                       child: LogicalPlan) : LogicalPlan = {
     val deserialized = CatalystSerde.deserialize[T](child)
@@ -112,7 +108,7 @@ object MAPGPU
 }
 
 case class MAPGPU[T: Encoder, U : Encoder](func: DSCUDAFunction,
-                                           args : Array[AnyRef],
+                                           args : Array[Any],
                                            outputArraySizes: Array[Int],
                                            child: LogicalPlan,
                                            inputEncoder: Encoder[T], outputEncoder: Encoder[U],
@@ -147,7 +143,6 @@ case class DSCUDAFunction(
                            _inputColumnsOrder: Seq[String] = null,
                            _outputColumnsOrder: Seq[String] = null,
                            resource: Any,
-                           constArgs: Array[AnyRef] = Array.empty,
                            stagesCount: Option[Long => Int] = None,
                            dimensions: Option[(Long, Int) => (Int, Int)] = None,
                            outputSize: Option[Long] = None
@@ -171,7 +166,7 @@ object CUDADSImplicits {
 
     def mapExtFunc[U:Encoder](func: T => U,
                           cf: DSCUDAFunction,
-                          args: Array[AnyRef],
+                          args: Array[Any],
                           outputArraySizes: Array[Int] = Array.empty): Dataset[U] =  {
 
       DS[U](ds.sparkSession,
@@ -181,7 +176,7 @@ object CUDADSImplicits {
 
     def reduceExtFunc(func: (T, T) => T,
                           cf: DSCUDAFunction,
-                          args: Array[AnyRef],
+                          args: Array[Any],
                           outputArraySizes: Array[Int] = Array.empty): T =  {
 
       val ds1 = DS[T](ds.sparkSession,
