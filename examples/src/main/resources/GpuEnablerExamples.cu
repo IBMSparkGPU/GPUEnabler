@@ -158,7 +158,7 @@ __global__ void multiplyBy2o(int *size, const long *in, long *out) {
 
 
 extern "C"
-__global__ void arrayTestMod(int n, long *factor, long *arr,int *const_arr1, long *const_arr2,long *result)
+__global__ void arrayTestMod(int n, long *factor, long *arr, long *result, int *const_arr1, long *const_arr2)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if(i == 0) {
@@ -174,8 +174,8 @@ __global__ void arrayTestMod(int n, long *factor, long *arr,int *const_arr1, lon
 }
 
 extern "C"
-__global__ void arrayTestModStages(int n, long *factor, long *arr, int *const_arr1, long *const_arr2, 
-     long *const_fixed, int outputArraySize, long *result, int stage, int totalstages)
+__global__ void arrayTestModStages(int n, long *factor, long *arr, long *result, int *const_arr1, long *const_arr2, 
+     long *const_fixed, int outputArraySize, int stage, int totalstages)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if(i == 0) {

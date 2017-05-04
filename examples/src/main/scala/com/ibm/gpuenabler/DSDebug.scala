@@ -29,7 +29,7 @@ object DSDebug {
 
     val dsFunc = DSCUDAFunction("arrayTestModStages", Seq("factor", "arr"), Seq("result"), ptxURL,
       Some((size: Long) => 2), Some(dimensions))
-    val redFunc = DSCUDAFunction("arrayTestMod", Seq("ele", "result"), Seq("arr2"), ptxURL, outputSize = Some(1))
+    val redFunc = DSCUDAFunction("arrayTestMod", Seq("ele", "result"), Seq("arr2"), ptxURL, outputSize = Some(3))
 
     if(args.length > 0) {
       println("Setting debug Mode" + args(0))

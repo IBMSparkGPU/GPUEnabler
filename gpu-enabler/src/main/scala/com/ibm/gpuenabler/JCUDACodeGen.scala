@@ -352,36 +352,6 @@ object JCUDACodeGen extends _Logging {
       }
     }
 
-    var cnt = 0
-    args.foreach {
-      x => {
-        val dtype =
-          x match {
-            case y: Array[Long] => (LongType, y.length)
-            case y: Array[Int] => (IntegerType, y.length)
-            case y: Array[Double] => (DoubleType, y.length)
-            case y: Array[Float] => (FloatType, y.length)
-            case y: Array[Char] => (ByteType, y.length)
-            case _: Long => (LongType, -1) //  -1 to indicate primitives
-            case _: Int => (IntegerType, -1)
-            case _: Double => (DoubleType, -1)
-            case _: Float => (FloatType, -1)
-            case _: Char => (ByteType, -1)
-          }
-
-        variables += Variable(cnt.toString,
-          CONST,
-          dtype._1,
-          -1,
-          -1,
-          dtype._2,  // array length of the const arguments.
-          0,         // Output Size is not applicable for const arguments.
-          ctx
-        )
-        cnt += 1
-      }
-    }
-
     if (outputArraySizes.isEmpty) {
       cf._outputColumnsOrder.foreach {
         x => {
@@ -413,13 +383,41 @@ object JCUDACodeGen extends _Logging {
           outputSchema(outIdx).dataType,
           -1,
           outIdx,
-          col._2, // User provided Array output size
+          col._2,   // User provided Array output size
           cf.outputSize.getOrElse(0),
           ctx)
       })
     }
 
+    var cnt = 0
+    args.foreach {
+      x => {
+        val dtype =
+          x match {
+            case y: Array[Long] => (LongType, y.length)
+            case y: Array[Int] => (IntegerType, y.length)
+            case y: Array[Double] => (DoubleType, y.length)
+            case y: Array[Float] => (FloatType, y.length)
+            case y: Array[Char] => (ByteType, y.length)
+            case _: Long => (LongType, -1) //  -1 to indicate primitives
+            case _: Int => (IntegerType, -1)
+            case _: Double => (DoubleType, -1)
+            case _: Float => (FloatType, -1)
+            case _: Char => (ByteType, -1)
+          }
 
+        variables += Variable(cnt.toString,
+          CONST,
+          dtype._1,
+          -1,
+          -1,
+          dtype._2,  // array length of the const arguments.
+          0,         // Output Size is not applicable for const arguments.
+          ctx
+        )
+        cnt += 1
+      }
+    }
 
     // There could be some column which is neither in GPUInput nor GPUOutput
     // It would be directly copied from schema.
@@ -434,7 +432,6 @@ object JCUDACodeGen extends _Logging {
             -1, cf.outputSize.getOrElse(0),
             ctx
           )
-
         }
     }
 
