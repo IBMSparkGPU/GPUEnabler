@@ -806,14 +806,14 @@ BB6_4:
 
 	cvta.to.global.u64 	%rd6, %rd1;
 	cvta.to.global.u64 	%rd7, %rd2;
-	cvta.to.global.u64 	%rd8, %rd4;
-	cvta.to.global.u64 	%rd9, %rd3;
+	cvta.to.global.u64 	%rd8, %rd5;
+	cvta.to.global.u64 	%rd9, %rd4;
 	add.u64 	%rd10, %SP, 0;
 	cvta.to.local.u64 	%rd11, %rd10;
 	st.local.u32 	[%rd11], %r1;
 	st.local.u64 	[%rd11+8], %rd1;
 	st.local.u64 	[%rd11+16], %rd2;
-	st.local.u64 	[%rd11+24], %rd5;
+	st.local.u64 	[%rd11+24], %rd3;
 	mov.u64 	%rd12, $str4;
 	cvta.global.u64 	%rd13, %rd12;
 	// Callseq Start 11
@@ -892,7 +892,7 @@ BB6_4:
 	ld.global.u64 	%rd21, [%rd6];
 	ld.global.u64 	%rd22, [%rd7];
 	mul.lo.s64 	%rd23, %rd21, %rd22;
-	cvta.to.global.u64 	%rd24, %rd5;
+	cvta.to.global.u64 	%rd24, %rd3;
 	st.global.u64 	[%rd24], %rd23;
 	ld.global.u64 	%rd25, [%rd6];
 	ld.global.u64 	%rd26, [%rd7];
@@ -937,8 +937,8 @@ BB7_2:
 	.param .u64 arrayTestModStages_param_3,
 	.param .u64 arrayTestModStages_param_4,
 	.param .u64 arrayTestModStages_param_5,
-	.param .u32 arrayTestModStages_param_6,
-	.param .u64 arrayTestModStages_param_7,
+	.param .u64 arrayTestModStages_param_6,
+	.param .u32 arrayTestModStages_param_7,
 	.param .u32 arrayTestModStages_param_8,
 	.param .u32 arrayTestModStages_param_9
 )
@@ -959,8 +959,8 @@ BB7_2:
 	ld.param.u64 	%rd3, [arrayTestModStages_param_3];
 	ld.param.u64 	%rd4, [arrayTestModStages_param_4];
 	ld.param.u64 	%rd5, [arrayTestModStages_param_5];
-	ld.param.u32 	%r2, [arrayTestModStages_param_6];
-	ld.param.u64 	%rd6, [arrayTestModStages_param_7];
+	ld.param.u64 	%rd6, [arrayTestModStages_param_6];
+	ld.param.u32 	%r2, [arrayTestModStages_param_7];
 	ld.param.u32 	%r3, [arrayTestModStages_param_8];
 	ld.param.u32 	%r4, [arrayTestModStages_param_9];
 	mov.u32 	%r5, %ntid.x;
@@ -973,9 +973,9 @@ BB7_2:
 
 	cvta.to.global.u64 	%rd7, %rd1;
 	cvta.to.global.u64 	%rd8, %rd2;
-	cvta.to.global.u64 	%rd9, %rd4;
-	cvta.to.global.u64 	%rd10, %rd3;
-	cvta.to.global.u64 	%rd11, %rd5;
+	cvta.to.global.u64 	%rd9, %rd5;
+	cvta.to.global.u64 	%rd10, %rd4;
+	cvta.to.global.u64 	%rd11, %rd6;
 	add.u64 	%rd12, %SP, 0;
 	cvta.to.local.u64 	%rd13, %rd12;
 	st.local.u32 	[%rd13], %r1;
@@ -1027,7 +1027,7 @@ BB7_2:
 	st.local.u32 	[%rd13], %r1;
 	st.local.u64 	[%rd13+8], %rd1;
 	st.local.u64 	[%rd13+16], %rd2;
-	st.local.u64 	[%rd13+24], %rd6;
+	st.local.u64 	[%rd13+24], %rd3;
 	mov.u64 	%rd18, $str4;
 	cvta.global.u64 	%rd19, %rd18;
 	// Callseq Start 17
@@ -1131,7 +1131,7 @@ BB7_2:
 	ld.global.u64 	%rd31, [%rd7];
 	ld.global.u64 	%rd32, [%rd8];
 	mul.lo.s64 	%rd33, %rd31, %rd32;
-	cvta.to.global.u64 	%rd34, %rd6;
+	cvta.to.global.u64 	%rd34, %rd3;
 	st.global.u64 	[%rd34], %rd33;
 	ld.global.u64 	%rd35, [%rd7];
 	ld.global.u64 	%rd36, [%rd8];
