@@ -187,7 +187,7 @@ object CUDADSImplicits {
 
     }
 
-    def cacheGPU(): Dataset[T] = {
+    def cacheGpu(): Dataset[T] = {
       val logPlan = ds.queryExecution.optimizedPlan transform {
         case SerializeFromObject(_, lp) => lp
       }
@@ -196,7 +196,7 @@ object CUDADSImplicits {
       ds
     }
 
-    def uncacheGPU(): Dataset[T] = {
+    def unCacheGpu(): Dataset[T] = {
       val logPlan = ds.queryExecution.optimizedPlan transform {
         case SerializeFromObject(_, lp) => lp
       }

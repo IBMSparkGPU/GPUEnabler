@@ -41,17 +41,17 @@ object JCUDACodeGen extends _Logging {
                       dataType: DataType,
                       inSchemaIdx : Int,
                       outSchemaIdx : Int,
-                      length : Long,
+                      var length : Long,
                       outputSize: Long,
                       ctx : CodegenContext) {
 
     //TODO use case class
 
-    if (is(GPUOUTPUT))
-      if (is(GPUINPUT)) assume(false, "A column cannot be in both GPUINPUT & GPUOUTPUT")
+//    if (is(GPUOUTPUT))
+//      if (is(GPUINPUT)) assume(false, "A column cannot be in both GPUINPUT & GPUOUTPUT")
 
     if (is(GPUOUTPUT))
-      if (!is(RDDOUTPUT)) assume(false, "GPU OUTPUT column must be RDDOUT to get type details")
+      if (!is(RDDOUTPUT)) assume(false, "GPU OUTPUT column must be RDDOUT to get type details :: "+ colName)
 
     val codeStmt = scala.collection.mutable.Map.empty[String, String]
 
@@ -131,7 +131,7 @@ object JCUDACodeGen extends _Logging {
         s"""|pinMemPtr_$colName = new CUdeviceptr();
             |${
               if (isArray) {
-                if (is(GPUINPUT))
+                if (is(GPUINPUT) && !is(GPUOUTPUT))
                   s"""
                     |if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}"))
                     |  ${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements();
@@ -142,7 +142,7 @@ object JCUDACodeGen extends _Logging {
                else ""
             }
             |if ( !${is(GPUINPUT)} || cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
-            | cuMemAllocHost(pinMemPtr_$colName, $size );
+            | cuMemAllocHost(pinMemPtr_$colName, $size);
             | $hostVariableName = pinMemPtr_$colName.getByteBuffer(0,$size).order(ByteOrder.LITTLE_ENDIAN);
             |}
           """.stripMargin
@@ -176,7 +176,7 @@ object JCUDACodeGen extends _Logging {
     }
 
     codeStmt += "readFromInternalRow" -> {
-      if (is(GPUINPUT)) {
+      if (is(GPUINPUT) && !is(GPUOUTPUT)) {
         if (isArray)
           s"""
            |if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
@@ -233,9 +233,9 @@ object JCUDACodeGen extends _Logging {
     codeStmt += "memcpyH2D" ->{
       if(is(GPUINPUT) || (is(CONST) && length != -1))
         s"""|if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
-            |  cuMemcpyHtoD($deviceVariableName,
+            |  cuMemcpyHtoDAsync($deviceVariableName,
             |      Pointer.to($hostVariableName),
-            |      $size);
+            |      $size, cuStream);
             |}
         """.stripMargin
       else
@@ -254,7 +254,7 @@ object JCUDACodeGen extends _Logging {
 
     codeStmt += "memcpyD2H" -> {
       if(is(GPUOUTPUT))
-        s"cuMemcpyDtoH(Pointer.to(${hostVariableName}), $deviceVariableName, $size);\n"
+        s"cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream);\n"
       else
         ""
     }
@@ -338,15 +338,18 @@ object JCUDACodeGen extends _Logging {
         val inIdx = findSchemaIndex(inputSchema, x)
         assume(inIdx >= 0, s"$inIdx $x not available in input Schema")
         val outIdx = findSchemaIndex(outputSchema, x)
+        val outCol = cf._outputColumnsOrder.exists(_.equals(x))
         variables += Variable(x,
           GPUINPUT | {
             if (outIdx > -1) RDDOUTPUT else 0
+          } | {
+            if (outCol) GPUOUTPUT else 0
           },
           inputSchema(inIdx).dataType,
           inIdx,
           outIdx,
           1,  // For Array input Variables, length will be determined at runtime.
-          0,  // Output Size is not applicable for input arguments.
+          cf.outputSize.getOrElse(0), // Will be applicable for GPUOUTPUT
           ctx
         )
       }
@@ -355,37 +358,43 @@ object JCUDACodeGen extends _Logging {
     if (outputArraySizes.isEmpty) {
       cf._outputColumnsOrder.foreach {
         x => {
-          val outIdx = findSchemaIndex(outputSchema, x)
+          val inCol = cf._inputColumnsOrder.exists(_.equals(x))
+          if (! inCol) { // If args is found in GPUINPUT, skip this variable;
+            val outIdx = findSchemaIndex(outputSchema, x)
 
-          // GPU OUTPUT variables must be in the output -- TODO may need to relax
-          assume(outIdx >= 0)
+            // GPU OUTPUT variables must be in the output -- TODO may need to relax
+            assume(outIdx >= 0)
 
-          variables += Variable(x,
-            GPUOUTPUT | RDDOUTPUT,
-            outputSchema(outIdx).dataType,
-            -1,
-            outIdx,
-            1,
-            cf.outputSize.getOrElse(0),
-            ctx)
+            variables += Variable(x,
+              GPUOUTPUT | RDDOUTPUT,
+              outputSchema(outIdx).dataType,
+              -1,
+              outIdx,
+              1,
+              cf.outputSize.getOrElse(0),
+              ctx)
+          }
         }
       }
     } else {
       assert(cf._outputColumnsOrder.length == outputArraySizes.length)
       cf._outputColumnsOrder.zip(outputArraySizes).foreach(col => {
-        val outIdx = findSchemaIndex(outputSchema, col._1)
+        val inCol = cf._inputColumnsOrder.exists(_.equals(col._1))
+        if (! inCol) { // If args is found in GPUINPUT, skip this variable;
+	  val outIdx = findSchemaIndex(outputSchema, col._1)
 
-        // GPU OUTPUT variables must be in the output -- TODO may need to relax
-        assume(outIdx >= 0)
+          // GPU OUTPUT variables must be in the output -- TODO may need to relax
+          assume(outIdx >= 0)
 
-        variables += Variable(col._1,
-          GPUOUTPUT | RDDOUTPUT,
-          outputSchema(outIdx).dataType,
-          -1,
-          outIdx,
-          col._2,   // User provided Array output size
-          cf.outputSize.getOrElse(0),
-          ctx)
+          variables += Variable(col._1,
+            GPUOUTPUT | RDDOUTPUT,
+            outputSchema(outIdx).dataType,
+            -1,
+            outIdx,
+            col._2, // User provided Array output size
+            cf.outputSize.getOrElse(0),
+            ctx)
+        }
       })
     }
 
@@ -500,6 +509,9 @@ object JCUDACodeGen extends _Logging {
         |import jcuda.driver.CUmodule;
         |import jcuda.driver.CUdevice;
         |import jcuda.driver.JCudaDriver;
+        |import jcuda.runtime.JCuda;
+        |import jcuda.driver.CUstream;
+        |import jcuda.runtime.cudaStream_t;
         |import org.apache.spark.sql.catalyst.InternalRow;
         |import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
         |import com.ibm.gpuenabler.JCUDACodegenIterator;
@@ -605,16 +617,16 @@ object JCUDACodeGen extends _Logging {
         |        ${getStmt(variables,List("FreeHostMemory"),"")}
         |    }
         |
-        |    private void allocateMemory(InternalRow r) {
+        |    private void allocateMemory(InternalRow r, CUstream cuStream ) {
         |
         |       // Allocate Host and Device variables
         |       ${getStmt(variables,List("allocateHost","allocateDevice"),"\n")}
         |    }
         |
         |    public void processGPU() {
-        |
+        |       
+        |       System.out.println("READY TO process :: ${cf.funcName} :: "+ Thread.currentThread().getId());       
         |       CUmodule module = GPUSparkEnv.get().cudaManager().getModule("${cf.resource}");
-        |       inpitr.hasNext();
         |       ${ if (cf.stagesCount.isEmpty) {
 		 s"""| blockSizeX = new int[1];
 		     | gridSizeX = new int[1];
@@ -632,11 +644,14 @@ object JCUDACodeGen extends _Logging {
         |       CUfunction function = new CUfunction();
         |       cuModuleGetFunction(function, module, "${cf.funcName}");
         |
+        |       cudaStream_t stream = new cudaStream_t();
+        |       JCuda.cudaStreamCreateWithFlags(stream, JCuda.cudaStreamNonBlocking);
+        |       CUstream cuStream = new CUstream();
         |
         |       // Fill GPUInput/Direct Copy Host variables
         |       for(int i=0; inpitr.hasNext();i++) {
         |          InternalRow r = (InternalRow) inpitr.next();
-        |          if (i == 0)  allocateMemory(r);
+        |          if (i == 0)  allocateMemory(r, cuStream);
         |          ${getStmt(variables,List("readFromInternalRow"),"")}
         |       }
         |
@@ -660,10 +675,10 @@ object JCUDACodeGen extends _Logging {
                  |  cuLaunchKernel(function,
                  |    gridSizeX[0], 1, 1,      // Grid dimension
                  |    blockSizeX[0], 1, 1,      // Block dimension
-                 |    0, null,               // Shared memory size and stream
+                 |    0, cuStream,               // Shared memory size and stream
                  |    kernelParameters, null // Kernel- and extra parameters
                  |  );
-                 |  cuCtxSynchronize();
+                 | cuCtxSynchronize();
                """.stripMargin
             } else
               s"""
@@ -679,7 +694,7 @@ object JCUDACodeGen extends _Logging {
                  |    cuLaunchKernel(function,
                  |      gridSizeX[stage], 1, 1,      // Grid dimension
                  |      blockSizeX[stage], 1, 1,      // Block dimension
-                 |      0, null,               // Shared memory size and stream
+                 |      0, cuStream,               // Shared memory size and stream
                  |      kernelParameters, null // Kernel- and extra parameters
                  |    );
                  |
@@ -688,10 +703,10 @@ object JCUDACodeGen extends _Logging {
                  |
                """.stripMargin
         }
-        |
         |        ${getStmt(variables,List("memcpyD2H"),"")}
         |
         |        ${getStmt(variables,List("FreeDeviceMemory"),"")}
+        |        JCuda.cudaStreamDestroy(stream);
         |    }
         |
         |    public InternalRow next() {
