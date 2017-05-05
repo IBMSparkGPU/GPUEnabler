@@ -53,8 +53,7 @@ private[gpuenabler] class GPUSparkEnv() {
     isGPUEnabled && SparkEnv.get.conf.getBoolean("spark.gpu.codegen", false)
 }
  
-object GPUSparkEnv {
-// private[gpuenabler] object GPUSparkEnv extends _Logging {
+private[gpuenabler] object GPUSparkEnv {
   private var env : GPUSparkEnv = _
   private var oldSparkEnv : SparkEnv = _
  
@@ -62,7 +61,6 @@ object GPUSparkEnv {
       env = new GPUSparkEnv()
   }
  
-//  initalize(true)
   def get = {
     this.synchronized {
       if (SparkEnv.get != oldSparkEnv) {
@@ -74,7 +72,7 @@ object GPUSparkEnv {
             case "driver" => 0
             case _ => SparkEnv.get.executorId.toInt
           }
-          JCuda.cudaSetDevice(0)
+	  println("GPUSparkEnv :: Set Device to :: GPU(" + executorId % env.gpuCount + ")")
           JCuda.cudaSetDevice(executorId % env.gpuCount )
         }
       }

@@ -27,16 +27,15 @@ import jcuda.runtime.JCuda
 import org.apache.commons.io.IOUtils
 import org.apache.spark.SparkException
 import org.slf4j.{Logger, LoggerFactory}
-import scala.collection.mutable.HashMap
 import scala.collection.mutable
 import java.text.SimpleDateFormat
  
 private[gpuenabler] object CUDAManagerCachedModule {
-  private val cachedModules = new HashMap[(String, Int), CUmodule] 
-  def getInstance() : HashMap[(String, Int), CUmodule] = { cachedModules }
+  private val cachedModules = new mutable.HashMap[(String, Int, Long), CUmodule] 
+  def getInstance : mutable.HashMap[(String, Int, Long), CUmodule] = { cachedModules }
 }
  
-private[gpuenabler] class CUDAManager {
+private class CUDAManager {
   // Initialization
   // This is supposed to be called before ANY other JCuda* call to ensure we have properly loaded
   // native jCuda library and cuda context
@@ -68,24 +67,22 @@ private[gpuenabler] class CUDAManager {
     cachedLoadModule(Left(ptxURL));
   }
  
-  // private[gpuenabler] def cachedLoadModule(resource: Either[URL, (String, String)]): CUmodule = {
-  // TODO : change it back to private after development
   private[gpuenabler] def cachedLoadModule(resource: Either[URL, (String, String)]): CUmodule = {
     var resourceURL: URL = null
     var key: String = null
     var ptxString: String = null
     resource match {
       case Left(resURL) =>
-        key = resURL.toString()
+        key = resURL.toString
         resourceURL = resURL
-      case Right((k, v)) => {
+      case Right((k, v)) =>
         key = k
         ptxString = v
-      }
     }
- 
+
     val devIx = new Array[Int](1)
     JCuda.cudaGetDevice(devIx)
+    val threadID = Thread.currentThread().getId
  
     synchronized {
       // Since multiple modules cannot be loaded into one context in runtime API,
@@ -93,7 +90,8 @@ private[gpuenabler] class CUDAManager {
       //   loading-multiple-modules-in-jcuda-is-not-working
       // TODO support loading multiple ptxs
       //   http://stackoverflow.com/questions/32535828/jit-in-jcuda-loading-multiple-ptx-modules
-      CUDAManagerCachedModule.getInstance.getOrElseUpdate((key, devIx(0)), {
+
+      CUDAManagerCachedModule.getInstance.getOrElseUpdate((key, devIx(0), threadID), {
         // TODO maybe unload the module if it won't be needed later
         var moduleBinaryData: Array[Byte] = null
         if (resourceURL != null) {
@@ -104,17 +102,19 @@ private[gpuenabler] class CUDAManager {
           moduleBinaryData = ptxString.getBytes()
         }
 
-      val device: CUdevice = new CUdevice
-    cuDeviceGet(device, 0)
-    val context: CUcontext = new CUcontext
-    cuCtxCreate(context, 0, device)
+        val device: CUdevice = new CUdevice
+        cuDeviceGet(device, 0)
+        val context: CUcontext = new CUcontext
+        cuCtxCreate(context, 0, device)
+
+        cuCtxSetCurrent(context)
+        println(s"LOAD Module $key by TID $threadID")
  
         val moduleBinaryData0 = new Array[Byte](moduleBinaryData.length + 1)
         System.arraycopy(moduleBinaryData, 0, moduleBinaryData0, 0, moduleBinaryData.length)
         moduleBinaryData0(moduleBinaryData.length) = 0
         val module = new CUmodule
         JCudaDriver.cuModuleLoadData(module, moduleBinaryData0)
-    // CUDAManagerCachedModule.getInstance.put((key, devIx(0)), module)
         module
       })
     }
