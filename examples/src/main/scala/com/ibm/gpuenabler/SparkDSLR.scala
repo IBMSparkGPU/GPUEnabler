@@ -131,7 +131,7 @@ object SparkDSLR {
         dmulvsMod(p.x, (1 / (1 + exp(-p.y * ddotvv(wbc.value, p.x))) - 1) * p.y),
         mapFunction.value, Array(wbc.value, D), outputArraySizes = Array(D)
       )
- 	mapDS.select('result1).count()
+ 	mapDS.select('result1, 'result2).show()
       val gradient = mapDS.reduceExtFunc((x: Results, y: Results) => daddvvMod(x, y),
         reduceFunction.value, Array(D), outputArraySizes = Array(D))
 	

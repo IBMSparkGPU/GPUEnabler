@@ -1168,4 +1168,35 @@ BB8_2:
 	ret;
 }
 
+	// .globl	multiplyBy2_self
+.visible .entry multiplyBy2_self(
+	.param .u32 multiplyBy2_self_param_0,
+	.param .u64 multiplyBy2_self_param_1
+)
+{
+	.reg .pred 	%p<2>;
+	.reg .b32 	%r<6>;
+	.reg .b64 	%rd<7>;
+
+
+	ld.param.u32 	%r2, [multiplyBy2_self_param_0];
+	ld.param.u64 	%rd1, [multiplyBy2_self_param_1];
+	mov.u32 	%r3, %tid.x;
+	mov.u32 	%r4, %ntid.x;
+	mov.u32 	%r5, %ctaid.x;
+	mad.lo.s32 	%r1, %r4, %r5, %r3;
+	setp.ge.s32	%p1, %r1, %r2;
+	@%p1 bra 	BB9_2;
+
+	cvta.to.global.u64 	%rd2, %rd1;
+	mul.wide.s32 	%rd3, %r1, 8;
+	add.s64 	%rd4, %rd2, %rd3;
+	ld.global.u64 	%rd5, [%rd4];
+	shl.b64 	%rd6, %rd5, 1;
+	st.global.u64 	[%rd4], %rd6;
+
+BB9_2:
+	ret;
+}
+
 

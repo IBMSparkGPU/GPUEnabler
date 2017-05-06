@@ -36,6 +36,13 @@ object DSDebug {
       SparkEnv.get.conf.set("DebugMode", args(0))
     }
 
+    val mulself = DSCUDAFunction("multiplyBy2_self", Seq("value"), Seq("value"), ptxURL)
+    
+    val datapt = ss.range(1, 100000, 1, 1)
+    println("Count is " + datapt.mapExtFunc(_ * 2, mulself).count())
+
+
+
     val ds = ss.read.json("src/main/resources/data.json").as[data];
 
     val gpuDS = ds.mapExtFunc(x=> data1(x.ele, x.name, x.arr2, x.arr.map(y => y * x.factor * 100)),
