@@ -157,3 +157,14 @@ __global__ void arrayTestModStages(int n, long *factor, long *arr, long *result,
     }
 }
 
+
+
+extern "C"
+// another simple test kernel
+__global__ void multiplyBy2_self(int size, long *inout) {
+    const int ix = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (ix < size) {
+        inout[ix] = inout[ix] * 2;
+    }
+}

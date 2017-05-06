@@ -167,6 +167,7 @@ object JCUDACodeGen extends _Logging {
             |if ( !${is(GPUINPUT)} || cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
             | $deviceVariableName = new CUdeviceptr();
             | cuMemAlloc($deviceVariableName, $size);
+            | ${if (is(GPUOUTPUT)) s"cuMemsetD32Async($deviceVariableName, 0, $size / 4, cuStream);" else ""}
             |} else { System.out.println("SKIP DEVICE Memory ALLOC ${colName} " +  inputCMap.get("gpuOutputDevice_${colName}"));
             | $deviceVariableName = (CUdeviceptr)inputCMap.get("gpuOutputDevice_${colName}");
             |} 
@@ -176,7 +177,7 @@ object JCUDACodeGen extends _Logging {
     }
 
     codeStmt += "readFromInternalRow" -> {
-      if (is(GPUINPUT) && !is(GPUOUTPUT)) {
+      if (is(GPUINPUT)) {
         if (isArray)
           s"""
            |if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
@@ -218,6 +219,14 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    codeStmt += "rewind" -> {
+      if(is(GPUINPUT) && is(GPUOUTPUT))
+        s"""
+           |${hostVariableName}.rewind();
+           |""".stripMargin
+      else
+        ""
+    }
 
     codeStmt += "flip" -> {
       if(is(GPUINPUT) || (is(CONST) && length != -1))
@@ -625,7 +634,6 @@ object JCUDACodeGen extends _Logging {
         |
         |    public void processGPU() {
         |       
-        |       System.out.println("READY TO process :: ${cf.funcName} :: "+ Thread.currentThread().getId());       
         |       CUmodule module = GPUSparkEnv.get().cudaManager().getModule("${cf.resource}");
         |       ${ if (cf.stagesCount.isEmpty) {
 		 s"""| blockSizeX = new int[1];
@@ -662,6 +670,7 @@ object JCUDACodeGen extends _Logging {
         |
         |       // Copy data from Host to Device
         |       ${getStmt(variables,List("memcpyH2D"),"")}
+        |       cuCtxSynchronize();
         |
         | ${
             if (cf.stagesCount.isEmpty) {
@@ -678,7 +687,6 @@ object JCUDACodeGen extends _Logging {
                  |    0, cuStream,               // Shared memory size and stream
                  |    kernelParameters, null // Kernel- and extra parameters
                  |  );
-                 | cuCtxSynchronize();
                """.stripMargin
             } else
               s"""
@@ -698,13 +706,15 @@ object JCUDACodeGen extends _Logging {
                  |      kernelParameters, null // Kernel- and extra parameters
                  |    );
                  |
-                 |    cuCtxSynchronize();
                  | }
                  |
                """.stripMargin
         }
+        |        
         |        ${getStmt(variables,List("memcpyD2H"),"")}
-        |
+        |        cuCtxSynchronize();
+        |        // Rewind buffer for read for GPUINPUT & GPUOUTPUT 
+        |        ${getStmt(variables,List("rewind"),"")}
         |        ${getStmt(variables,List("FreeDeviceMemory"),"")}
         |        JCuda.cudaStreamDestroy(stream);
         |    }
@@ -729,7 +739,6 @@ object JCUDACodeGen extends _Logging {
       pw.write(CodeFormatter.format(code))
       pw.close()
       println("The generated file path = " + fpath)
-
     }
 
     if(debugMode)

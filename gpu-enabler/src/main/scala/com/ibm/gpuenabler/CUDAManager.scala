@@ -108,7 +108,6 @@ private class CUDAManager {
         cuCtxCreate(context, 0, device)
 
         cuCtxSetCurrent(context)
-        println(s"LOAD Module $key by TID $threadID")
  
         val moduleBinaryData0 = new Array[Byte](moduleBinaryData.length + 1)
         System.arraycopy(moduleBinaryData, 0, moduleBinaryData0, 0, moduleBinaryData.length)

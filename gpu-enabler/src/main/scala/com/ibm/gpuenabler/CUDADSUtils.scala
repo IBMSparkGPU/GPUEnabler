@@ -166,7 +166,7 @@ object CUDADSImplicits {
 
     def mapExtFunc[U:Encoder](func: T => U,
                           cf: DSCUDAFunction,
-                          args: Array[Any],
+                          args: Array[Any] = Array.empty,
                           outputArraySizes: Array[Int] = Array.empty): Dataset[U] =  {
 
       DS[U](ds.sparkSession,
@@ -176,7 +176,7 @@ object CUDADSImplicits {
 
     def reduceExtFunc(func: (T, T) => T,
                           cf: DSCUDAFunction,
-                          args: Array[Any],
+                          args: Array[Any] = Array.empty,
                           outputArraySizes: Array[Int] = Array.empty): T =  {
 
       val ds1 = DS[T](ds.sparkSession,
