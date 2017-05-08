@@ -10,7 +10,7 @@
 .target sm_35
 .address_size 64
 
-	// .globl	multiplyBy2
+	// .globl	sum
 .extern .func __assertfail
 (
 	.param .b64 __assertfail_param_0,
@@ -40,43 +40,6 @@
 .global .align 1 .b8 $str10[26] = {73, 110, 32, 111, 117, 116, 112, 117, 116, 65, 114, 114, 97, 121, 83, 105, 122, 101, 32, 58, 32, 37, 100, 32, 10, 0};
 .global .align 1 .b8 $str11[28] = {73, 110, 32, 70, 105, 120, 101, 100, 32, 99, 111, 110, 115, 116, 32, 37, 108, 100, 32, 46, 46, 32, 37, 108, 100, 32, 10, 0};
 
-.visible .entry multiplyBy2(
-	.param .u64 multiplyBy2_param_0,
-	.param .u64 multiplyBy2_param_1,
-	.param .u64 multiplyBy2_param_2
-)
-{
-	.reg .pred 	%p<2>;
-	.reg .b32 	%r<8>;
-	.reg .b64 	%rd<10>;
-
-
-	ld.param.u64 	%rd3, [multiplyBy2_param_0];
-	ld.param.u64 	%rd1, [multiplyBy2_param_1];
-	ld.param.u64 	%rd2, [multiplyBy2_param_2];
-	cvta.to.global.u64 	%rd4, %rd3;
-	mov.u32 	%r2, %ntid.x;
-	mov.u32 	%r3, %ctaid.x;
-	mov.u32 	%r4, %tid.x;
-	mad.lo.s32 	%r1, %r2, %r3, %r4;
-	ld.global.u32 	%r5, [%rd4];
-	setp.ge.s32	%p1, %r1, %r5;
-	@%p1 bra 	BB0_2;
-
-	cvta.to.global.u64 	%rd5, %rd1;
-	mul.wide.s32 	%rd6, %r1, 4;
-	add.s64 	%rd7, %rd5, %rd6;
-	ld.global.u32 	%r6, [%rd7];
-	shl.b32 	%r7, %r6, 1;
-	cvta.to.global.u64 	%rd8, %rd2;
-	add.s64 	%rd9, %rd8, %rd6;
-	st.global.u32 	[%rd9], %r7;
-
-BB0_2:
-	ret;
-}
-
-	// .globl	sum
 .visible .entry sum(
 	.param .u64 sum_param_0,
 	.param .u64 sum_param_1,
@@ -105,10 +68,10 @@ BB0_2:
 	cvta.to.global.u64 	%rd21, %rd18;
 	ld.global.u32 	%r13, [%rd21];
 	setp.eq.s32	%p1, %r13, 0;
-	@%p1 bra 	BB1_5;
+	@%p1 bra 	BB0_5;
 
 	setp.ne.s64	%p2, %rd3, 0;
-	@%p2 bra 	BB1_12;
+	@%p2 bra 	BB0_12;
 
 	ld.global.s32 	%rd23, [%rd2];
 	setp.lt.s64	%p3, %rd23, 16384;
@@ -117,32 +80,32 @@ BB0_2:
 	mov.u32 	%r25, %r24;
 	mov.u64 	%rd40, 0;
 	setp.lt.s64	%p4, %rd4, 1;
-	@%p4 bra 	BB1_4;
+	@%p4 bra 	BB0_4;
 
-BB1_3:
+BB0_3:
 	ld.global.u32 	%r16, [%rd39];
 	add.s32 	%r25, %r16, %r25;
 	add.s64 	%rd39, %rd39, 4;
 	add.s64 	%rd40, %rd40, 1;
 	setp.lt.s64	%p5, %rd40, %rd4;
 	mov.u32 	%r24, %r25;
-	@%p5 bra 	BB1_3;
+	@%p5 bra 	BB0_3;
 
-BB1_4:
+BB0_4:
 	cvta.to.global.u64 	%rd24, %rd15;
 	st.global.u32 	[%rd24], %r24;
-	bra.uni 	BB1_12;
+	bra.uni 	BB0_12;
 
-BB1_5:
+BB0_5:
 	ld.global.u32 	%r26, [%rd2];
 	cvt.s64.s32	%rd25, %r26;
 	setp.ge.s64	%p6, %rd3, %rd25;
-	@%p6 bra 	BB1_12;
+	@%p6 bra 	BB0_12;
 
 	mov.u32 	%r17, %nctaid.x;
 	mul.lo.s32 	%r18, %r17, %r3;
 	setp.eq.s32	%p7, %r18, 16384;
-	@%p7 bra 	BB1_8;
+	@%p7 bra 	BB0_8;
 
 	mov.u64 	%rd26, $str;
 	cvta.global.u64 	%rd27, %rd26;
@@ -150,7 +113,7 @@ BB1_5:
 	cvta.global.u64 	%rd29, %rd28;
 	mov.u64 	%rd30, __T20;
 	cvta.global.u64 	%rd31, %rd30;
-	mov.u32 	%r19, 21;
+	mov.u32 	%r19, 10;
 	mov.u64 	%rd32, 1;
 	// Callseq Start 0
 	{
@@ -180,11 +143,11 @@ BB1_5:
 	}// Callseq End 0
 	ld.global.u32 	%r26, [%rd2];
 
-BB1_8:
+BB0_8:
 	cvt.s64.s32	%rd9, %r26;
 	mov.u32 	%r27, 0;
 	setp.ge.s64	%p8, %rd3, %rd9;
-	@%p8 bra 	BB1_11;
+	@%p8 bra 	BB0_11;
 
 	add.s64 	%rd35, %rd20, %rd19;
 	shl.b64 	%rd36, %rd35, 2;
@@ -192,7 +155,7 @@ BB1_8:
 	mov.u32 	%r27, 0;
 	mov.u64 	%rd42, %rd3;
 
-BB1_10:
+BB0_10:
 	mov.u64 	%rd12, %rd42;
 	ld.global.u32 	%r22, [%rd41];
 	add.s32 	%r27, %r22, %r27;
@@ -200,14 +163,14 @@ BB1_10:
 	add.s64 	%rd14, %rd12, 16384;
 	setp.lt.s64	%p9, %rd14, %rd9;
 	mov.u64 	%rd42, %rd14;
-	@%p9 bra 	BB1_10;
+	@%p9 bra 	BB0_10;
 
-BB1_11:
+BB0_11:
 	shl.b64 	%rd37, %rd3, 2;
 	add.s64 	%rd38, %rd39, %rd37;
 	st.global.u32 	[%rd38], %r27;
 
-BB1_12:
+BB0_12:
 	ret;
 }
 
@@ -235,32 +198,32 @@ BB1_12:
 	neg.s64 	%rd13, %rd11;
 	mul.lo.s64 	%rd14, %rd12, %rd13;
 	setp.ne.s64	%p1, %rd10, %rd14;
-	@%p1 bra 	BB2_5;
+	@%p1 bra 	BB1_5;
 
 	cvta.to.global.u64 	%rd15, %rd7;
 	ld.global.u32 	%r1, [%rd15];
 	mov.u32 	%r11, 0;
 	setp.lt.s32	%p2, %r1, 1;
-	@%p2 bra 	BB2_4;
+	@%p2 bra 	BB1_4;
 
 	cvta.to.global.u64 	%rd18, %rd8;
 	cvt.s64.s32	%rd2, %r1;
 	mov.u32 	%r11, 0;
 	mov.u64 	%rd19, 0;
 
-BB2_3:
+BB1_3:
 	ld.global.u32 	%r10, [%rd18];
 	add.s32 	%r11, %r10, %r11;
 	add.s64 	%rd18, %rd18, 4;
 	add.s64 	%rd19, %rd19, 1;
 	setp.lt.s64	%p3, %rd19, %rd2;
-	@%p3 bra 	BB2_3;
+	@%p3 bra 	BB1_3;
 
-BB2_4:
+BB1_4:
 	cvta.to.global.u64 	%rd17, %rd9;
 	st.global.u32 	[%rd17], %r11;
 
-BB2_5:
+BB1_5:
 	ret;
 }
 
@@ -272,7 +235,7 @@ BB2_5:
 	.param .u64 add_param_3
 )
 {
-	.local .align 8 .b8 	__local_depot3[24];
+	.local .align 8 .b8 	__local_depot2[24];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
 	.reg .pred 	%p<2>;
@@ -280,7 +243,7 @@ BB2_5:
 	.reg .b64 	%rd<21>;
 
 
-	mov.u64 	%rd20, __local_depot3;
+	mov.u64 	%rd20, __local_depot2;
 	cvta.local.u64 	%SP, %rd20;
 	ld.param.u32 	%r2, [add_param_0];
 	ld.param.u64 	%rd1, [add_param_1];
@@ -291,7 +254,7 @@ BB2_5:
 	mov.u32 	%r5, %tid.x;
 	mad.lo.s32 	%r1, %r3, %r4, %r5;
 	setp.ge.s32	%p1, %r1, %r2;
-	@%p1 bra 	BB3_2;
+	@%p1 bra 	BB2_2;
 
 	cvta.to.global.u64 	%rd4, %rd1;
 	mul.wide.s32 	%rd5, %r1, 8;
@@ -333,7 +296,7 @@ BB2_5:
 	//{
 	}// Callseq End 1
 
-BB3_2:
+BB2_2:
 	ret;
 }
 
@@ -345,7 +308,7 @@ BB3_2:
 	.param .u64 mul_param_3
 )
 {
-	.local .align 8 .b8 	__local_depot4[24];
+	.local .align 8 .b8 	__local_depot3[24];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
 	.reg .pred 	%p<2>;
@@ -353,7 +316,7 @@ BB3_2:
 	.reg .b64 	%rd<21>;
 
 
-	mov.u64 	%rd20, __local_depot4;
+	mov.u64 	%rd20, __local_depot3;
 	cvta.local.u64 	%SP, %rd20;
 	ld.param.u32 	%r2, [mul_param_0];
 	ld.param.u64 	%rd1, [mul_param_1];
@@ -364,7 +327,7 @@ BB3_2:
 	mov.u32 	%r5, %tid.x;
 	mad.lo.s32 	%r1, %r3, %r4, %r5;
 	setp.ge.s32	%p1, %r1, %r2;
-	@%p1 bra 	BB4_2;
+	@%p1 bra 	BB3_2;
 
 	cvta.to.global.u64 	%rd4, %rd1;
 	mul.wide.s32 	%rd5, %r1, 8;
@@ -406,7 +369,7 @@ BB3_2:
 	//{
 	}// Callseq End 2
 
-BB4_2:
+BB3_2:
 	ret;
 }
 
@@ -420,7 +383,7 @@ BB4_2:
 	.param .u64 arrayTest_param_5
 )
 {
-	.local .align 8 .b8 	__local_depot5[56];
+	.local .align 8 .b8 	__local_depot4[56];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
 	.reg .pred 	%p<3>;
@@ -428,7 +391,7 @@ BB4_2:
 	.reg .b64 	%rd<48>;
 
 
-	mov.u64 	%rd47, __local_depot5;
+	mov.u64 	%rd47, __local_depot4;
 	cvta.local.u64 	%SP, %rd47;
 	ld.param.u32 	%r2, [arrayTest_param_0];
 	ld.param.u64 	%rd2, [arrayTest_param_1];
@@ -444,7 +407,7 @@ BB4_2:
 	mad.lo.s32 	%r1, %r3, %r4, %r5;
 	add.s64 	%rd1, %rd8, 4;
 	setp.ne.s32	%p1, %r1, 0;
-	@%p1 bra 	BB5_2;
+	@%p1 bra 	BB4_2;
 
 	cvta.to.global.u64 	%rd9, %rd5;
 	cvta.to.global.u64 	%rd10, %rd4;
@@ -528,9 +491,9 @@ BB4_2:
 	//{
 	}// Callseq End 5
 
-BB5_2:
+BB4_2:
 	setp.ge.s32	%p2, %r1, %r2;
-	@%p2 bra 	BB5_4;
+	@%p2 bra 	BB4_4;
 
 	cvta.to.global.u64 	%rd22, %rd6;
 	cvta.to.global.u64 	%rd23, %rd2;
@@ -586,7 +549,7 @@ BB5_2:
 	//{
 	}// Callseq End 6
 
-BB5_4:
+BB4_4:
 	ret;
 }
 
@@ -600,7 +563,7 @@ BB5_4:
 	.param .u64 arrayMult_param_5
 )
 {
-	.local .align 8 .b8 	__local_depot6[56];
+	.local .align 8 .b8 	__local_depot5[56];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
 	.reg .pred 	%p<3>;
@@ -608,7 +571,7 @@ BB5_4:
 	.reg .b64 	%rd<48>;
 
 
-	mov.u64 	%rd47, __local_depot6;
+	mov.u64 	%rd47, __local_depot5;
 	cvta.local.u64 	%SP, %rd47;
 	ld.param.u32 	%r2, [arrayMult_param_0];
 	ld.param.u64 	%rd2, [arrayMult_param_1];
@@ -624,7 +587,7 @@ BB5_4:
 	mad.lo.s32 	%r1, %r3, %r4, %r5;
 	add.s64 	%rd1, %rd8, 4;
 	setp.ne.s32	%p1, %r1, 0;
-	@%p1 bra 	BB6_2;
+	@%p1 bra 	BB5_2;
 
 	cvta.to.global.u64 	%rd9, %rd5;
 	cvta.to.global.u64 	%rd10, %rd4;
@@ -708,9 +671,9 @@ BB5_4:
 	//{
 	}// Callseq End 9
 
-BB6_2:
+BB5_2:
 	setp.ge.s32	%p2, %r1, %r2;
-	@%p2 bra 	BB6_4;
+	@%p2 bra 	BB5_4;
 
 	cvta.to.global.u64 	%rd22, %rd6;
 	cvta.to.global.u64 	%rd23, %rd2;
@@ -766,7 +729,7 @@ BB6_2:
 	//{
 	}// Callseq End 10
 
-BB6_4:
+BB5_4:
 	ret;
 }
 
@@ -780,7 +743,7 @@ BB6_4:
 	.param .u64 arrayTestMod_param_5
 )
 {
-	.local .align 8 .b8 	__local_depot7[40];
+	.local .align 8 .b8 	__local_depot6[40];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
 	.reg .pred 	%p<2>;
@@ -788,7 +751,7 @@ BB6_4:
 	.reg .b64 	%rd<32>;
 
 
-	mov.u64 	%rd31, __local_depot7;
+	mov.u64 	%rd31, __local_depot6;
 	cvta.local.u64 	%SP, %rd31;
 	ld.param.u32 	%r1, [arrayTestMod_param_0];
 	ld.param.u64 	%rd1, [arrayTestMod_param_1];
@@ -802,7 +765,7 @@ BB6_4:
 	mov.u32 	%r5, %tid.x;
 	neg.s32 	%r6, %r5;
 	setp.ne.s32	%p1, %r4, %r6;
-	@%p1 bra 	BB7_2;
+	@%p1 bra 	BB6_2;
 
 	cvta.to.global.u64 	%rd6, %rd1;
 	cvta.to.global.u64 	%rd7, %rd2;
@@ -925,7 +888,7 @@ BB6_4:
 	//{
 	}// Callseq End 14
 
-BB7_2:
+BB6_2:
 	ret;
 }
 
@@ -943,7 +906,7 @@ BB7_2:
 	.param .u32 arrayTestModStages_param_9
 )
 {
-	.local .align 8 .b8 	__local_depot8[40];
+	.local .align 8 .b8 	__local_depot7[40];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
 	.reg .pred 	%p<2>;
@@ -951,7 +914,7 @@ BB7_2:
 	.reg .b64 	%rd<42>;
 
 
-	mov.u64 	%rd41, __local_depot8;
+	mov.u64 	%rd41, __local_depot7;
 	cvta.local.u64 	%SP, %rd41;
 	ld.param.u32 	%r1, [arrayTestModStages_param_0];
 	ld.param.u64 	%rd1, [arrayTestModStages_param_1];
@@ -969,7 +932,7 @@ BB7_2:
 	mov.u32 	%r8, %tid.x;
 	neg.s32 	%r9, %r8;
 	setp.ne.s32	%p1, %r7, %r9;
-	@%p1 bra 	BB8_2;
+	@%p1 bra 	BB7_2;
 
 	cvta.to.global.u64 	%rd7, %rd1;
 	cvta.to.global.u64 	%rd8, %rd2;
@@ -1164,7 +1127,7 @@ BB7_2:
 	//{
 	}// Callseq End 21
 
-BB8_2:
+BB7_2:
 	ret;
 }
 
@@ -1186,7 +1149,7 @@ BB8_2:
 	mov.u32 	%r5, %ctaid.x;
 	mad.lo.s32 	%r1, %r4, %r5, %r3;
 	setp.ge.s32	%p1, %r1, %r2;
-	@%p1 bra 	BB9_2;
+	@%p1 bra 	BB8_2;
 
 	cvta.to.global.u64 	%rd2, %rd1;
 	mul.wide.s32 	%rd3, %r1, 8;
@@ -1194,6 +1157,41 @@ BB8_2:
 	ld.global.u64 	%rd5, [%rd4];
 	shl.b64 	%rd6, %rd5, 1;
 	st.global.u64 	[%rd4], %rd6;
+
+BB8_2:
+	ret;
+}
+
+	// .globl	multiplyBy2
+.visible .entry multiplyBy2(
+	.param .u32 multiplyBy2_param_0,
+	.param .u64 multiplyBy2_param_1,
+	.param .u64 multiplyBy2_param_2
+)
+{
+	.reg .pred 	%p<2>;
+	.reg .b32 	%r<6>;
+	.reg .b64 	%rd<10>;
+
+
+	ld.param.u32 	%r2, [multiplyBy2_param_0];
+	ld.param.u64 	%rd1, [multiplyBy2_param_1];
+	ld.param.u64 	%rd2, [multiplyBy2_param_2];
+	mov.u32 	%r3, %tid.x;
+	mov.u32 	%r4, %ntid.x;
+	mov.u32 	%r5, %ctaid.x;
+	mad.lo.s32 	%r1, %r4, %r5, %r3;
+	setp.ge.s32	%p1, %r1, %r2;
+	@%p1 bra 	BB9_2;
+
+	cvta.to.global.u64 	%rd3, %rd1;
+	mul.wide.s32 	%rd4, %r1, 8;
+	add.s64 	%rd5, %rd3, %rd4;
+	ld.global.u64 	%rd6, [%rd5];
+	shl.b64 	%rd7, %rd6, 1;
+	cvta.to.global.u64 	%rd8, %rd2;
+	add.s64 	%rd9, %rd8, %rd4;
+	st.global.u64 	[%rd9], %rd7;
 
 BB9_2:
 	ret;

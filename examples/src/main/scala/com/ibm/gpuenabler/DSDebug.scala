@@ -36,12 +36,18 @@ object DSDebug {
       SparkEnv.get.conf.set("DebugMode", args(0))
     }
 
-    val mulself = DSCUDAFunction("multiplyBy2_self", Seq("value"), Seq("value"), ptxURL)
-    
-    val datapt = ss.range(1, 100000, 1, 1)
-    println("Count is " + datapt.mapExtFunc(_ * 2, mulself).count())
+    val mulself = DSCUDAFunction("multiplyBy2_self", Seq("value"), Seq(), ptxURL)
+    val datapt = ss.range(1, 100000, 1, 1).cache
+    var tmp1 = datapt.mapExtFunc(_ * 2, mulself).cache
+    println("Count is " + tmp1.count())
+    tmp1.filter(_ % 9998 == 0).show()
+    tmp1.filter(_ % 9999 == 0).show()
 
-
+    val mul = DSCUDAFunction("multiplyBy2", Seq("value"), Seq("value"), ptxURL)
+    tmp1 = datapt.mapExtFunc(_ * 2, mul).cache
+    println("Count is " + tmp1.count())
+    tmp1.filter(_ % 9998 == 0).show()
+    tmp1.filter(_ % 9999 == 0).show()
 
     val ds = ss.read.json("src/main/resources/data.json").as[data];
 
