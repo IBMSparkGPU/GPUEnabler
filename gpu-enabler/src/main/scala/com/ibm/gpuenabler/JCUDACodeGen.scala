@@ -47,8 +47,8 @@ object JCUDACodeGen extends _Logging {
 
     //TODO use case class
 
-//    if (is(GPUOUTPUT))
-//      if (is(GPUINPUT)) assume(false, "A column cannot be in both GPUINPUT & GPUOUTPUT")
+    if (is(GPUOUTPUT))
+      if (is(GPUINPUT)) assume(false, "A column cannot be in both GPUINPUT & GPUOUTPUT")
 
     if (is(GPUOUTPUT))
       if (!is(RDDOUTPUT)) assume(false, "GPU OUTPUT column must be RDDOUT to get type details :: "+ colName)
@@ -131,7 +131,7 @@ object JCUDACodeGen extends _Logging {
         s"""|pinMemPtr_$colName = new CUdeviceptr();
             |${
               if (isArray) {
-                if (is(GPUINPUT) && !is(GPUOUTPUT))
+                if (is(GPUINPUT))
                   s"""
                     |if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}"))
                     |  ${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements();
@@ -262,7 +262,8 @@ object JCUDACodeGen extends _Logging {
     }
 
     codeStmt += "memcpyD2H" -> {
-      if(is(GPUOUTPUT))
+      // TODO : Evaluate for performance;
+      if(is(GPUOUTPUT)  || (is(GPUINPUT) && is(RDDOUTPUT)))
         s"cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream);\n"
       else
         ""
@@ -348,12 +349,14 @@ object JCUDACodeGen extends _Logging {
         assume(inIdx >= 0, s"$inIdx $x not available in input Schema")
         val outIdx = findSchemaIndex(outputSchema, x)
         val outCol = cf._outputColumnsOrder.exists(_.equals(x))
-        variables += Variable(x,
+        variables += Variable("in_"+x,
           GPUINPUT | {
-            if (outIdx > -1) RDDOUTPUT else 0
-          } | {
-            if (outCol) GPUOUTPUT else 0
-          },
+            if (outIdx > -1 && !outCol) RDDOUTPUT else 0
+          }
+          //  | {
+          //  if (outCol) GPUOUTPUT else 0
+          // }
+          ,
           inputSchema(inIdx).dataType,
           inIdx,
           outIdx,
@@ -367,14 +370,14 @@ object JCUDACodeGen extends _Logging {
     if (outputArraySizes.isEmpty) {
       cf._outputColumnsOrder.foreach {
         x => {
-          val inCol = cf._inputColumnsOrder.exists(_.equals(x))
-          if (! inCol) { // If args is found in GPUINPUT, skip this variable;
+          // val inCol = cf._inputColumnsOrder.exists(_.equals(x))
+          // if (! inCol) { // If args is found in GPUINPUT, skip this variable;
             val outIdx = findSchemaIndex(outputSchema, x)
 
             // GPU OUTPUT variables must be in the output -- TODO may need to relax
             assume(outIdx >= 0)
 
-            variables += Variable(x,
+            variables += Variable("out_"+x,
               GPUOUTPUT | RDDOUTPUT,
               outputSchema(outIdx).dataType,
               -1,
@@ -382,20 +385,20 @@ object JCUDACodeGen extends _Logging {
               1,
               cf.outputSize.getOrElse(0),
               ctx)
-          }
+          // }
         }
       }
     } else {
       assert(cf._outputColumnsOrder.length == outputArraySizes.length)
       cf._outputColumnsOrder.zip(outputArraySizes).foreach(col => {
-        val inCol = cf._inputColumnsOrder.exists(_.equals(col._1))
-        if (! inCol) { // If args is found in GPUINPUT, skip this variable;
+        // val inCol = cf._inputColumnsOrder.exists(_.equals(col._1))
+        // if (! inCol) { // If args is found in GPUINPUT, skip this variable;
 	  val outIdx = findSchemaIndex(outputSchema, col._1)
 
           // GPU OUTPUT variables must be in the output -- TODO may need to relax
           assume(outIdx >= 0)
 
-          variables += Variable(col._1,
+          variables += Variable("out_"+col._1,
             GPUOUTPUT | RDDOUTPUT,
             outputSchema(outIdx).dataType,
             -1,
@@ -403,7 +406,7 @@ object JCUDACodeGen extends _Logging {
             col._2, // User provided Array output size
             cf.outputSize.getOrElse(0),
             ctx)
-        }
+        // }
       })
     }
 
@@ -440,8 +443,10 @@ object JCUDACodeGen extends _Logging {
     // There could be some column which is neither in GPUInput nor GPUOutput
     // It would be directly copied from schema.
     getAttributes(outputSchema).foreach {
-      x =>
-        if (! variables.exists(v => v.colName.equals(x.name))) {
+      x => {
+        val outCol = cf._outputColumnsOrder.exists(_.equals(x.name))
+	val inCol = cf._inputColumnsOrder.exists(_.equals(x.name))
+        if (!outCol && !inCol) {
           variables += Variable(x.name,
             RDDOUTPUT,
             x.dataType,
@@ -451,6 +456,7 @@ object JCUDACodeGen extends _Logging {
             ctx
           )
         }
+      }
     }
 
     variables.toArray
