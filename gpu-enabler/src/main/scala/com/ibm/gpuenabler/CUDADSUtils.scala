@@ -60,7 +60,7 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       val jcudaIterator = JCUDACodeGen.generate(inputSchema,
                      outputSchema,cf,constArgs, outputArraySizes)
       val list = new mutable.ListBuffer[InternalRow]
-      iter.foreach(x =>
+      iter.foreach(x => 
         list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy())
 
       // cached: 1 -> this logical plan is cached; 2 -> child logical plan is cached
