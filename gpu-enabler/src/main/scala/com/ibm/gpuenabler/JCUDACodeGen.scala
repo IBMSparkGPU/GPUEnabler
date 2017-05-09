@@ -98,6 +98,7 @@ object JCUDACodeGen extends _Logging {
     }
 
     if(boxType.eq("Integer")) boxType = "Int"
+    if(boxType.eq("Byte")) boxType = ""
 
     codeStmt += "declareHost" -> {
       if (is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1)) {
@@ -425,6 +426,7 @@ object JCUDACodeGen extends _Logging {
             case _: Double => (DoubleType, -1)
             case _: Float => (FloatType, -1)
             case _: Char => (ByteType, -1)
+	    case _: Short => (ShortType, -1)
           }
 
         variables += Variable(cnt.toString,

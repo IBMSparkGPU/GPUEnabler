@@ -54,14 +54,14 @@ __global__ void IntDataPointIdentity(int size, const int *inputX, const int *inp
 
 extern "C"
 // very simple test kernel for int array with free var
-__global__ void intArrayAdd(int *size, const int *input, int *output, const int *inFreeArray, int *length) {
+__global__ void intArrayAdd(int size, const int *input, int *output, const int *inFreeArray, int length) {
     const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
-    if (ix < *size) {
+    if (ix < size) {
         // copy int array
-        const int *inArrayBody = &input[ix* *length];
-        int *outArrayBody = &output[ix* *length];
+        const int *inArrayBody = &input[ix* length];
+        int *outArrayBody = &output[ix* length];
 
-        for (long i = 0; i < *length; i++) {
+        for (long i = 0; i < length; i++) {
           outArrayBody[i] = inArrayBody[i] + inFreeArray[i];
         }
     }
@@ -69,18 +69,18 @@ __global__ void intArrayAdd(int *size, const int *input, int *output, const int 
 
 extern "C"
 // test kernel for multiple input columns
-__global__ void vectorLength(int *size, const double *x, const double *y, double *len) {
+__global__ void vectorLength(int size, const double *x, const double *y, double *len) {
     const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
-    if (ix < *size) {
+    if (ix < size) {
         len[ix] = sqrt(x[ix] * x[ix] + y[ix] * y[ix]);
     }
 }
 
 extern "C"
 // test kernel for multiple input and multiple output columns, with different types
-__global__ void plusMinus(int *size, const double *base, const float *deviation, double *a, float *b) {
+__global__ void plusMinus(int size, const double *base, const float *deviation, double *a, float *b) {
     const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
-    if (ix < *size) {
+    if (ix < size) {
         a[ix] = base[ix] - deviation[ix];
         b[ix] = base[ix] + deviation[ix];
     }
@@ -88,10 +88,10 @@ __global__ void plusMinus(int *size, const double *base, const float *deviation,
 
 extern "C"
 // test kernel for two const arguments
-__global__ void applyLinearFunction(int *size, const short *x, short *y, short *a, short *b) {
+__global__ void applyLinearFunction(int size, const short *x, short *y, short a, short b) {
     const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
-    if (ix < *size) {
-        y[ix] = *a + *b * x[ix];
+    if (ix < size) {
+        y[ix] = a + b * x[ix];
     }
 }
 
@@ -99,10 +99,10 @@ extern "C"
 // test kernel for custom number of blocks + const argument
 // manual SIMD, to be ran on size / 8 threads, assumes size % 8 == 0
 // note that key is reversed, since it's little endian
-__global__ void blockXOR(int *size, const char *input, char *output, long *key) {
+__global__ void blockXOR(int size, const char *input, char *output, long key) {
     const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
-    if (ix * 8 < *size) {
-        ((long *)output)[ix] = ((const long *)input)[ix] ^ *key;
+    if (ix * 8 < size) {
+        ((long *)output)[ix] = ((const long *)input)[ix] ^ key;
     }
 }
 
@@ -129,20 +129,20 @@ __global__ void multiplyBy2_self(int *size, int *in, int *out) {
 
 extern "C"
 // test reduce kernel that sums elements
-__global__ void sum(int *size, int *input, int *output, int *stage, int *totalStages) {
+__global__ void sum(int size, int *input, int *output, int stage, int totalStages) {
     const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
     const int jump = 64 * 256;
-    if (*stage == 0) {
-        if (ix < *size) {
+    if (stage == 0) {
+        if (ix < size) {
             assert(jump == blockDim.x * gridDim.x);
             int result = 0;
-            for (long i = ix; i < *size; i += jump) {
+            for (long i = ix; i < size; i += jump) {
                 result += input[i];
             }
             input[ix] = result;
         }
     } else if (ix == 0) {
-        const long count = (*size < (long)jump) ? *size : (long)jump;
+        const long count = (size < (long)jump) ? size : (long)jump;
         int result = 0;
         for (long i = 0; i < count; ++i) {
             result += input[i];
