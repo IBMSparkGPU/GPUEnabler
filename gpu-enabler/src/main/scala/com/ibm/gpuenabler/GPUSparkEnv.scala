@@ -42,6 +42,7 @@ private[gpuenabler] class GPUSparkEnv() {
   }
 
   val cudaManager = new CUDAManager
+println("NEW GPUMemoryManager CREATED")
   val gpuMemoryManager = new GPUMemoryManager(executorId, rpcEnv,
                     registerOrLookupEndpoint(GPUMemoryManager.DRIVER_ENDPOINT_NAME,
                       new GPUMemoryManagerMasterEndPoint(rpcEnv)),
