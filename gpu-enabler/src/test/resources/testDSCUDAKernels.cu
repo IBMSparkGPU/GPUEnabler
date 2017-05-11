@@ -108,22 +108,21 @@ __global__ void blockXOR(int size, const char *input, char *output, long key) {
 
 extern "C"
 // another simple test kernel
-__global__ void multiplyBy2(int *size, int *in, int *out) {
+__global__ void multiplyBy2(int size, long *in, long *out) {
     const int ix = threadIdx.x + blockIdx.x * blockDim.x;
 
-    if (ix < *size) {
+    if (ix < size) {
         out[ix] = in[ix] * 2;
     }
 }
 
 extern "C"
 // another simple test kernel
-__global__ void multiplyBy2_self(int *size, int *in, int *out) {
+__global__ void multiplyBy2_self(int size, long *inout) {
     const int ix = threadIdx.x + blockIdx.x * blockDim.x;
 
-    if (ix < *size) {
-        out[ix] = in[ix] * 2;
-        in[ix] = out[ix];
+    if (ix < size) {
+        inout[ix] = inout[ix] * 2;
     }
 }
 
@@ -153,36 +152,60 @@ __global__ void sum(int size, int *input, int *output, int stage, int totalStage
 
 extern "C"
 // test reduce kernel that sums elements
-__global__ void intArraySum(int *size, const int *input, int *output, int *length, int *stage, int *totalStages) {
+__global__ void suml(int size, long *input, long *output, int stage, int totalStages) {
     const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
     const int jump = 64 * 256;
-    if (*stage == 0) {
-        if (ix < *size) {
+    if (stage == 0) {
+        if (ix < size) {
+            assert(jump == blockDim.x * gridDim.x);
+            long result = 0;
+            for (long i = ix; i < size; i += jump) {
+                result += input[i];
+            }
+            input[ix] = result;
+        }
+    } else if (ix == 0) {
+        const long count = (size < (long)jump) ? size : (long)jump;
+        long result = 0;
+        for (long i = 0; i < count; ++i) {
+            result += input[i];
+        }
+        output[0] = result;
+    }
+}
+
+extern "C"
+// test reduce kernel that sums elements
+__global__ void intArraySum(int size, const int *input, int *output, int length, int stage, int totalStages) {
+    const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
+    const int jump = 64 * 256;
+    if (stage == 0) {
+        if (ix < size) {
             assert(jump == blockDim.x * gridDim.x);
 
-            int *accArrayBody = const_cast<int *>(&input[ix* *length]);
+            int *accArrayBody = const_cast<int *>(&input[ix* length]);
 
-            for (long i = ix + jump; i < *size; i += jump) {
-                const int *inArrayBody = &input[(ix* *length) + i];
+            for (long i = ix + jump; i < size; i += jump) {
+                const int *inArrayBody = &input[(ix* length) + i];
 
-                for (long j = 0; j < *length; j++) {
+                for (long j = 0; j < length; j++) {
                      accArrayBody[j] += inArrayBody[j];
                 }
             }
         }
     } else if (ix == 0) {
-        const long count = (*size < jump) ? *size : (long)jump;
-        int *outArrayBody = &output[ix* *length];
+        const long count = (size < jump) ? size : (long)jump;
+        int *outArrayBody = &output[ix* length];
 
         for (long i = 0; i < count; i++) {
-            const int *inArrayBody = &input[(i* *length)];
+            const int *inArrayBody = &input[(i* length)];
 
             if (i == 0) {
-                for (long j = 0; j < *length; j++) {
+                for (long j = 0; j < length; j++) {
                     outArrayBody[j] = 0;
                 }
             }
-            for (long j = 0; j < *length; j++) {
+            for (long j = 0; j < length; j++) {
                 outArrayBody[j] += inArrayBody[j];
             }
         }
@@ -191,14 +214,14 @@ __global__ void intArraySum(int *size, const int *input, int *output, int *lengt
 
 extern "C"
 // map for DataPoint class
-__global__ void DataPointMap(int *size, const double *inputX, const double *inputY, double *output, const double *inFreeArray, int *length) {
+__global__ void DataPointMap(int size, const double *inputX, const double *inputY, double *output, const double *inFreeArray, int length) {
     const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
-    if (ix < *size) {
+    if (ix < size) {
         // copy int array
-        const double *inArrayBody = &inputX[ix* *length];
-        double *outArrayBody = &output[ix* *length];
+        const double *inArrayBody = &inputX[ix* length];
+        double *outArrayBody = &output[ix* length];
 
-        for (long i = 0; i < *length; i++) {
+        for (long i = 0; i < length; i++) {
           outArrayBody[i] = inArrayBody[i] + inFreeArray[i];
         }
     }
@@ -206,35 +229,35 @@ __global__ void DataPointMap(int *size, const double *inputX, const double *inpu
 
 extern "C"
 // reduce for DataPoint class
-__global__ void DataPointReduce(int *size, const double *input, double *output, int *length, int *stage, int *totalStages) {
+__global__ void DataPointReduce(int size, const double *input, double *output, int length, int stage, int totalStages) {
     const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
     const int jump = 64 * 256;
-    if (*stage == 0) {
-        if (ix < *size) {
+    if (stage == 0) {
+        if (ix < size) {
             assert(jump == blockDim.x * gridDim.x);
-            double *accArrayBody = const_cast<double *>(&input[ix* *length]);
+            double *accArrayBody = const_cast<double *>(&input[ix* length]);
 
-            for (long i = ix + jump; i < *size; i += jump) {
-                const double *inArrayBody = &input[(ix* *length) + i];
+            for (long i = ix + jump; i < size; i += jump) {
+                const double *inArrayBody = &input[(ix* length) + i];
 
-                for (long j = 0; j < *length; j++) {
+                for (long j = 0; j < length; j++) {
                      accArrayBody[j] += inArrayBody[j];
                 }
             }
         }
     } else if (ix == 0) {
-        const long count = (*size < (long)jump) ? *size : (long)jump;
-        double *outArrayBody = &output[ix* *length];
+        const long count = (size < (long)jump) ? size : (long)jump;
+        double *outArrayBody = &output[ix* length];
 
         for (long i = 0; i < count; i++) {
-            const double *inArrayBody = &input[(i* *length)];
+            const double *inArrayBody = &input[(i* length)];
 
             if (i == 0) {
-                for (long j = 0; j < *length; j++) {
+                for (long j = 0; j < length; j++) {
                     outArrayBody[j] = 0;
                 }
             }
-            for (long j = 0; j < *length; j++) {
+            for (long j = 0; j < length; j++) {
                 outArrayBody[j] += inArrayBody[j];
             }
         }
@@ -394,12 +417,12 @@ __device__ void deviceReduceArrayKernel(double * inArray, double *outputArrayBod
 
 extern "C"
 __global__
-void blockReduce(int *count, double *data, double * result, int *user_D) {
+void blockReduce(int count, double *data, double * result, int user_D) {
 
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
 #if (__CUDA_ARCH__ >= 300)
-    if (idx < *count)
-       deviceReduceArrayKernel(data, result, *user_D, *count);
+    if (idx < count)
+       deviceReduceArrayKernel(data, result, user_D, count);
 
 #else
     printf("not supported");
@@ -409,11 +432,11 @@ void blockReduce(int *count, double *data, double * result, int *user_D) {
 
 extern "C"
 __global__ void
-mapAll(int *count, double *x, double *y, double *result, double *w, int *user_D) {
+mapAll(int count, double *x, double *y, double *result, double *w, int user_D) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-    if(idx < *count)
-        map(&result[idx * *user_D], &x[idx * *user_D ], y[idx],w, *user_D);
+    if(idx < count)
+        map(&result[idx * user_D], &x[idx * user_D ], y[idx],w, user_D);
 
 }
 

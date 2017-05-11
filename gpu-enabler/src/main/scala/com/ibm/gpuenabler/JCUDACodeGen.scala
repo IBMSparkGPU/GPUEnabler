@@ -134,7 +134,7 @@ object JCUDACodeGen extends _Logging {
               if (isArray) {
                 if (is(GPUINPUT))
                   s"""
-                    |if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}"))
+                    |if ( !((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}"))
                     |  ${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements();
                     |""".stripMargin
                  else
@@ -142,7 +142,7 @@ object JCUDACodeGen extends _Logging {
                }
                else ""
             }
-            |if ( !${is(GPUINPUT)} || cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
+            |if ( !${is(GPUINPUT)} || !((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
             | cuMemAllocHost(pinMemPtr_$colName, $size);
             | $hostVariableName = pinMemPtr_$colName.getByteBuffer(0,$size).order(ByteOrder.LITTLE_ENDIAN);
             |}
@@ -165,30 +165,41 @@ object JCUDACodeGen extends _Logging {
     codeStmt += "allocateDevice" -> {
       if (is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1))
         s"""|
-            |if ( !${is(GPUINPUT)} || cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
+            |if ( !${is(GPUINPUT)} || !((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
             | $deviceVariableName = new CUdeviceptr();
             | cuMemAlloc($deviceVariableName, $size);
             | ${if (is(GPUOUTPUT)) s"cuMemsetD32Async($deviceVariableName, 0, $size / 4, cuStream);" else ""}
-            |} else { System.out.println("SKIP DEVICE Memory ALLOC ${colName} " +  inputCMap.get("gpuOutputDevice_${colName}"));
-            | $deviceVariableName = (CUdeviceptr)inputCMap.get("gpuOutputDevice_${colName}");
+            |} else { 
+            | $deviceVariableName = (CUdeviceptr)inputCMap.get(blockID+"gpuOutputDevice_${colName}");
             |} 
            """.stripMargin
       else
        ""
     }
 
+    codeStmt += "checkLoop" -> {
+      if (is(GPUINPUT)) {
+          s""" || !inputCMap.containsKey(blockID + "gpuOutputDevice_${colName}") """
+      } else 
+        ""
+    }
+
     codeStmt += "readFromInternalRow" -> {
       if (is(GPUINPUT)) {
         if (isArray)
           s"""
-           |if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
+           |if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
            |  $javaType tmp_${colName}[] = r.getArray($inSchemaIdx).to${boxType}Array();
            |  for(int j = 0; j < gpuInputHost_${colName}_numCols; j ++)
            |    ${hostVariableName}.put$boxType(tmp_${colName}[j]);
-           |}
+           |} 
         """.stripMargin
         else
-          s"${hostVariableName}.put$boxType(${ctx.getValue("r", dataType, inSchemaIdx.toString)});\n"
+          s"""
+             |if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
+             |  ${hostVariableName}.put$boxType(${ctx.getValue("r", dataType, inSchemaIdx.toString)});
+             |} 
+           """.stripMargin
       }
       else if(is(GPUOUTPUT))
         ""
@@ -232,7 +243,7 @@ object JCUDACodeGen extends _Logging {
     codeStmt += "flip" -> {
       if(is(GPUINPUT) || (is(CONST) && length != -1))
         s"""
-           |if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
+           |if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
            |  ${hostVariableName}.flip();
            |}
           """.stripMargin
@@ -242,7 +253,7 @@ object JCUDACodeGen extends _Logging {
 
     codeStmt += "memcpyH2D" ->{
       if(is(GPUINPUT) || (is(CONST) && length != -1))
-        s"""|if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
+        s"""|if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
             |  cuMemcpyHtoDAsync($deviceVariableName,
             |      Pointer.to($hostVariableName),
             |      $size, cuStream);
@@ -270,16 +281,23 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
-    // Device memory will be freed immediatly.
+    // Device memory will be freed if not cached.
     codeStmt += "FreeDeviceMemory" -> {
       if(is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1)) {
         if (is(GPUOUTPUT)) {
-          s"""| if (cached == 1) {
-            |   outputCMap.put("$deviceVariableName", $deviceVariableName);
+          s"""| if (((cached & 1) > 0)) {
+            |   outputCMap.putIfAbsent(blockID+"${deviceVariableName.replace("_out_", "_in_")}", $deviceVariableName);
             | } else {
             |   cuMemFree($deviceVariableName);
             | }
          """.stripMargin
+        }  else if (is(GPUINPUT)) {
+          s"""|if (((cached & 2) > 0)) {
+             | inputCMap.putIfAbsent(blockID+"${deviceVariableName.replace("gpuInputDevice_", "gpuOutputDevice_")}", $deviceVariableName);
+             |} else {
+             |  cuMemFree($deviceVariableName);
+             |}
+           """.stripMargin
         } else {
           s"""|cuMemFree($deviceVariableName);
          """.stripMargin
@@ -292,7 +310,7 @@ object JCUDACodeGen extends _Logging {
     codeStmt += "FreeHostMemory" -> {
       if (is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1))
         s"""
-           |if (cached != 2 || !inputCMap.containsKey("gpuOutputDevice_${colName}")) {
+           |if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
            |  cuMemFreeHost(pinMemPtr_$colName);
            |}
            |""".stripMargin
@@ -510,8 +528,8 @@ object JCUDACodeGen extends _Logging {
     val debugMode = !SparkEnv.get.conf.get("DebugMode","").isEmpty
     if(debugMode)
       println("Compile Existing File - DebugMode")
-    else
-      println("Generate Code")
+   // else
+      // println("Generate Code")
 
 
 
@@ -567,6 +585,7 @@ object JCUDACodeGen extends _Logging {
         |    // 1 - DS is cached; Hold GPU results in GPU
         |    // 2 - child DS is cached; Use GPU results stored by child for input parameters
         |    private int cached = 0;
+        |    private int blockID = 0;
         |    private List<Map<String,CUdeviceptr>> gpuPtrs;
         |    private Map<String, CUdeviceptr> inputCMap;
         |    private Map<String, CUdeviceptr> outputCMap;
@@ -586,32 +605,27 @@ object JCUDACodeGen extends _Logging {
         |    }
         |
         |    public void init(Iterator<InternalRow> inp, Object inprefs[], int size, int cached,
-        |             List<Map<String,CUdeviceptr>> gpuPtrs, int[] userGridSizes, int[] userBlockSizes, int stages) {
+        |             List<Map<String,CUdeviceptr>> gpuPtrs, int blockID, int[] userGridSizes, int[] userBlockSizes, int stages) {
         |        inpitr = inp;
         |        numElements = size;
         |        hasNextLoop = ${cf.outputSize.getOrElse("numElements")};
         |
         |        refs = inprefs;
         |
-        |        System.out.println("Cached " + cached);
         |        this.cached = cached;
         |        this.gpuPtrs = gpuPtrs;
+        |        this.blockID = blockID;
         |
         |        gridSizeX = userGridSizes;
         |        blockSizeX = userBlockSizes;
         |        this.stages = stages;
         |
-        |        if (cached == 1) {
+        |        if (((cached & 1) > 0)) {
         |           outputCMap = (Map<String, CUdeviceptr>)gpuPtrs.get(0);
-        |           if (gpuPtrs.get(0) != null) System.out.println("Output holder ready to be written");
-        |           else System.out.println("ERROR for output holder");
         |        }
         |
-        |        if (cached == 2) {
+        |        if (((cached & 2) > 0)) {
         |           inputCMap = (Map<String, CUdeviceptr>) gpuPtrs.get(1);
-        |           System.out.println(inputCMap.toString());
-        |           if (gpuPtrs.get(1) != null) System.out.println("Input holder ready to be read");
-        |           else System.out.println("ERROR for input holder");
         |        }
         |    }
         |
@@ -664,12 +678,22 @@ object JCUDACodeGen extends _Logging {
         |       JCuda.cudaStreamCreateWithFlags(stream, JCuda.cudaStreamNonBlocking);
         |       CUstream cuStream = new CUstream();
         |
+	|       inpitr.hasNext();
+	|       Boolean enterLoop = true;
+	|       if (!((cached & 2) > 0) ${getStmt(variables,List("checkLoop"),"")} ) {
+	|         enterLoop = true;
+	|       } else {
+	|         enterLoop = false;
+	|       }
+	|
+	|       if (enterLoop){
         |       // Fill GPUInput/Direct Copy Host variables
         |       for(int i=0; inpitr.hasNext();i++) {
         |          InternalRow r = (InternalRow) inpitr.next();
         |          if (i == 0)  allocateMemory(r, cuStream);
         |          ${getStmt(variables,List("readFromInternalRow"),"")}
         |       }
+	|       }
         |
         |      ${getStmt(variables,List("readFromConstArray"),"")}
         |
@@ -746,7 +770,7 @@ object JCUDACodeGen extends _Logging {
       val pw = new PrintWriter(new File(fpath))
       pw.write(CodeFormatter.format(code))
       pw.close()
-      println("The generated file path = " + fpath)
+      // println("The generated file path = " + fpath)
     }
 
     if(debugMode)

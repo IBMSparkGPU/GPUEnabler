@@ -27,7 +27,7 @@ abstract class JCUDACodegenIterator {
   def hasNext() : Boolean
   def next() : InternalRow
   def init(itr : java.util.Iterator[InternalRow], args: Array[Any],size : Int,
-           cached: Int, gpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]],
+           cached: Int, gpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]], blockID: Int,
            userGridSizes: Array[Int], userBlockSizes: Array[Int], stages: Int)
 }
 

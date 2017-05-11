@@ -20,7 +20,6 @@ package com.ibm.gpuenabler
 import jcuda.driver.CUdeviceptr
 import org.apache.spark.SparkException
 import org.apache.spark.gpuenabler.CUDAUtils._
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
 import scala.collection.mutable
 
@@ -30,9 +29,9 @@ private[gpuenabler] case class UncacheGPU(id : Int)
 
 private[gpuenabler] case class CacheGPU(id : Int)
 
-private[gpuenabler] case class UncacheGPUDS(lp : LogicalPlan)
+private[gpuenabler] case class UncacheGPUDS(lp : String)
 
-private[gpuenabler] case class CacheGPUDS(lp : LogicalPlan)
+private[gpuenabler] case class CacheGPUDS(lp : String)
 
 private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) extends _ThreadSafeRpcEndpoint {
 
@@ -54,13 +53,13 @@ private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) ex
     }
   }
 
-  def unCacheGPU(lp : LogicalPlan): Unit = {
+  def unCacheGPU(lp : String): Unit = {
     for (slaveRef <- GPUMemoryManagerSlaves.values) {
       tell(slaveRef, UncacheGPUDS(lp))
     }
   }
 
-  def cacheGPU(lp : LogicalPlan): Unit = {
+  def cacheGPU(lp : String): Unit = {
     for (slaveRef <- GPUMemoryManagerSlaves.values){
       tell(slaveRef, CacheGPUDS(lp))
     }
@@ -76,10 +75,10 @@ private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) ex
     case CacheGPU(rddId : Int) =>
       cacheGPU(rddId)
       context.reply (true)
-    case UncacheGPUDS(lp : LogicalPlan) =>
+    case UncacheGPUDS(lp : String) =>
       unCacheGPU(lp)
       context.reply (true)
-    case CacheGPUDS(lp : LogicalPlan) =>
+    case CacheGPUDS(lp : String) =>
       cacheGPU(lp)
       context.reply (true)
   }
@@ -103,11 +102,11 @@ private[gpuenabler] class GPUMemoryManagerSlaveEndPoint(val rpcEnv: _RpcEnv,
     master.cacheGPU(rddId)
   }
 
-  def unCacheGPU(lp : LogicalPlan): Unit = {
+  def unCacheGPU(lp : String): Unit = {
     master.unCacheGPU(lp)
   }
 
-  def cacheGPU(lp : LogicalPlan): Unit = {
+  def cacheGPU(lp : String): Unit = {
     master.cacheGPU(lp)
   }
 
@@ -118,10 +117,10 @@ private[gpuenabler] class GPUMemoryManagerSlaveEndPoint(val rpcEnv: _RpcEnv,
     case CacheGPU(rddId : Int) =>
       cacheGPU(rddId)
       context.reply (true)
-    case UncacheGPUDS(lp : LogicalPlan) =>
+    case UncacheGPUDS(lp : String) =>
       unCacheGPU(lp)
       context.reply (true)
-    case CacheGPUDS(lp : LogicalPlan) =>
+    case CacheGPUDS(lp : String) =>
       cacheGPU(lp)
       context.reply (true)
     case id : String =>
@@ -135,21 +134,22 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
                        val isDriver : Boolean,
                        val isLocal : Boolean) {
   
-  val cachedGPUPointersDS = new mutable.HashMap[LogicalPlan, mutable.HashMap[String, CUdeviceptr]]()
-  val cachedGPUDS = new mutable.ListBuffer[LogicalPlan]()
-  def getCachedGPUPointersDS : mutable.HashMap[LogicalPlan,
+  val cachedGPUPointersDS = new mutable.HashMap[String, mutable.HashMap[String, CUdeviceptr]]()
+  val cachedGPUDS = new mutable.ListBuffer[String]()
+  def getCachedGPUPointersDS : mutable.HashMap[String,
     mutable.HashMap[String, CUdeviceptr]] = cachedGPUPointersDS
 
-  def cacheGPU(lp : LogicalPlan): Unit = {
+  def cacheGPU(lp : String): Unit = {
     if (!cachedGPUDS.contains(lp)) {
       cachedGPUDS += lp
     }
+
     cachedGPUPointersDS.getOrElseUpdate(lp, {
       new mutable.HashMap[String, CUdeviceptr]()
     })
   }
 
-  def unCacheGPU(lp : LogicalPlan): Unit = {
+  def unCacheGPU(lp : String): Unit = {
     cachedGPUDS -= lp
 
 
@@ -161,11 +161,11 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
     }
   }
 
-  def unCacheGPUSlaves(lp : LogicalPlan): Unit = {
+  def unCacheGPUSlaves(lp : String): Unit = {
     tell(com.ibm.gpuenabler.UncacheGPUDS(lp))
   }
 
-  def cacheGPUSlaves(lp : LogicalPlan): Unit = {
+  def cacheGPUSlaves(lp : String): Unit = {
     tell(com.ibm.gpuenabler.CacheGPUDS(lp))
   }
 
