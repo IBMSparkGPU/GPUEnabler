@@ -143,7 +143,6 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
     if (!cachedGPUDS.contains(lp)) {
       cachedGPUDS += lp
     }
-
     cachedGPUPointersDS.getOrElseUpdate(lp, {
       new mutable.HashMap[String, CUdeviceptr]()
     })
