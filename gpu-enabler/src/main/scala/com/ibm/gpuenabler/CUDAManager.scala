@@ -25,14 +25,20 @@ import jcuda.driver._
 import jcuda.driver.{CUdeviceptr, CUmodule, JCudaDriver}
 import jcuda.runtime.JCuda
 import org.apache.commons.io.IOUtils
-import org.apache.spark.SparkException
 import org.slf4j.{Logger, LoggerFactory}
 import scala.collection.mutable
 import java.text.SimpleDateFormat
+import java.util.concurrent.ConcurrentHashMap
+import scala.collection.JavaConverters._
+import org.apache.spark.{SparkEnv, SparkException}
+
  
 private[gpuenabler] object CUDAManagerCachedModule {
-  private val cachedModules = new mutable.HashMap[(String, Int, Long), CUmodule] 
-  def getInstance : mutable.HashMap[(String, Int, Long), CUmodule] = { cachedModules }
+  private val cachedModules = new ConcurrentHashMap[(String, Int), CUmodule].asScala
+  private val cachedContext = new ConcurrentHashMap[(String, Int), CUcontext].asScala
+
+  def getInstance : collection.concurrent.Map[(String, Int), CUmodule] = { cachedModules }
+  def getContext : collection.concurrent.Map[(String, Int), CUcontext] = { cachedContext }
 }
  
 private class CUDAManager {
@@ -44,15 +50,13 @@ private class CUDAManager {
     JCudaDriver.setExceptionsEnabled(true)
     JCudaDriver.cuInit(0)
     isGPUEnabled = true
+    JCuda.cudaDeviceReset()
+    CUDAManagerCachedModule.getInstance.clear
+    CUDAManagerCachedModule.getContext.clear
   } catch {
-    case ex: UnsatisfiedLinkError => 
+    case _: Throwable =>
       CUDAManager.logger.info("Could not initialize CUDA, because native jCuda libraries were " +
-      "not detected - continue to use CPU for execution")
-    case ex: NoClassDefFoundError =>
-      CUDAManager.logger.info("Could not initialize CUDA, because native jCuda libraries were " +
-      "not detected - continue to use CPU for execution")
-    case ex: Throwable =>
-      throw new SparkException("Could not initialize CUDA because of unknown reason", ex)
+        "not detected - continue to use CPU for execution")
   }
  
   // Returns the number of GPUs available in this node
@@ -62,12 +66,17 @@ private class CUDAManager {
     count(0)
   }
 
-  def getModule(fname : String ) : CUmodule = {
+  def getModule(fname : String, partNum: Int ) : CUmodule = synchronized {
     val ptxURL = getClass.getResource(fname)
-    cachedLoadModule(Left(ptxURL));
+    val clm = cachedLoadModule(Left(ptxURL), partNum);
+    clm
   }
  
   private[gpuenabler] def cachedLoadModule(resource: Either[URL, (String, String)]): CUmodule = {
+    cachedLoadModule(resource, 0)
+  }
+  
+  private[gpuenabler] def cachedLoadModule(resource: Either[URL, (String, String)],  partNum: Int): CUmodule = {
     var resourceURL: URL = null
     var key: String = null
     var ptxString: String = null
@@ -82,16 +91,31 @@ private class CUDAManager {
 
     val devIx = new Array[Int](1)
     JCuda.cudaGetDevice(devIx)
-    val threadID = Thread.currentThread().getId
  
     synchronized {
+      val context:CUcontext = CUDAManagerCachedModule.getContext.getOrElseUpdate((key,devIx(0)), {
+          val device: CUdevice = new CUdevice
+          cuDeviceGet(device, 0)
+          val context: CUcontext = new CUcontext
+          cuCtxCreate(context, 0, device)
+          cuCtxSetCurrent(context)
+          JCuda.cudaDeviceSynchronize()
+          context
+      })
+
+      val prevcontext: CUcontext = new CUcontext
+      cuCtxGetCurrent(prevcontext)
+      if (prevcontext != context){
+        cuCtxSetCurrent(context)
+        JCuda.cudaDeviceSynchronize()
+      }
+
       // Since multiple modules cannot be loaded into one context in runtime API,
       //   we use singleton cache http://stackoverflow.com/questions/32502375/
       //   loading-multiple-modules-in-jcuda-is-not-working
       // TODO support loading multiple ptxs
       //   http://stackoverflow.com/questions/32535828/jit-in-jcuda-loading-multiple-ptx-modules
-
-      CUDAManagerCachedModule.getInstance.getOrElseUpdate((key, devIx(0), threadID), {
+      CUDAManagerCachedModule.getInstance.getOrElseUpdate((key, devIx(0)), {
         // TODO maybe unload the module if it won't be needed later
         var moduleBinaryData: Array[Byte] = null
         if (resourceURL != null) {
@@ -101,14 +125,6 @@ private class CUDAManager {
         } else {
           moduleBinaryData = ptxString.getBytes()
         }
-
-        val device: CUdevice = new CUdevice
-        cuDeviceGet(device, 0)
-        val context: CUcontext = new CUcontext
-        cuCtxCreate(context, 0, device)
-
-        cuCtxSetCurrent(context)
-	println("MODULE LOADED by TID : " + threadID)
  
         val moduleBinaryData0 = new Array[Byte](moduleBinaryData.length + 1)
         System.arraycopy(moduleBinaryData, 0, moduleBinaryData0, 0, moduleBinaryData.length)

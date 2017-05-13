@@ -42,7 +42,6 @@ private[gpuenabler] class GPUSparkEnv() {
   }
 
   val cudaManager = new CUDAManager
-println("NEW GPUMemoryManager CREATED")
   val gpuMemoryManager = new GPUMemoryManager(executorId, rpcEnv,
                     registerOrLookupEndpoint(GPUMemoryManager.DRIVER_ENDPOINT_NAME,
                       new GPUMemoryManagerMasterEndPoint(rpcEnv)),
@@ -62,10 +61,10 @@ private[gpuenabler] object GPUSparkEnv {
       env = new GPUSparkEnv()
   }
  
-  def get = {
-    this.synchronized {
-      if (SparkEnv.get != oldSparkEnv) {
-        oldSparkEnv = SparkEnv.get
+  def get = this.synchronized {
+      val curSparkEnv = SparkEnv.get
+      if (curSparkEnv != null && curSparkEnv  != oldSparkEnv) {
+        oldSparkEnv = curSparkEnv
         initalize()
        
         if (env.isGPUEnabled) { 
@@ -73,11 +72,10 @@ private[gpuenabler] object GPUSparkEnv {
             case "driver" => 0
             case _ => SparkEnv.get.executorId.toInt
           }
-	  println("GPUSparkEnv :: Set Device to :: GPU(" + executorId % env.gpuCount + ")")
           JCuda.cudaSetDevice(executorId % env.gpuCount )
         }
       }
       env
     }
-  }
+
 }

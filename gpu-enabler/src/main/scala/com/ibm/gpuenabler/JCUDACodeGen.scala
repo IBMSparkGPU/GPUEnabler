@@ -494,7 +494,7 @@ object JCUDACodeGen extends _Logging {
     codeBody.dropRight(1).toString()
   }
 
-  def getUserDimensions(numElements: Int): (Int, Array[Int], Array[Int]) = {
+  def getUserDimensions(localCF: DSCUDAFunction, numElements: Int): (Int, Array[Int], Array[Int]) = {
     val stagesCount: Int = localCF.stagesCount match {
       case Some(getCount) => getCount(numElements)
       case None => 1
@@ -515,14 +515,11 @@ object JCUDACodeGen extends _Logging {
     (stagesCount, gpuGridSizeList, gpuBlockSizeList)
   }
 
-  var localCF: DSCUDAFunction = _
-
   def generate(inputSchema : StructType, outputSchema : StructType,
                    cf : DSCUDAFunction, args: Array[Any],
                outputArraySizes: Array[Int]) : JCUDACodegenIterator = {
 
     val ctx = new CodegenContext()
-    localCF = cf
 
     val variables = createVariables(inputSchema,outputSchema,cf,args,outputArraySizes, ctx)
     val debugMode = !SparkEnv.get.conf.get("DebugMode","").isEmpty
@@ -530,8 +527,6 @@ object JCUDACodeGen extends _Logging {
       println("Compile Existing File - DebugMode")
    // else
       // println("Generate Code")
-
-
 
     val codeBody =
       s"""
@@ -621,7 +616,7 @@ object JCUDACodeGen extends _Logging {
         |        this.stages = stages;
         |
         |        if (((cached & 1) > 0)) {
-        |           outputCMap = (Map<String, CUdeviceptr>)gpuPtrs.get(0);
+        |           outputCMap = (Map<String, CUdeviceptr>)gpuPtrs.get(0); 
         |        }
         |
         |        if (((cached & 2) > 0)) {
@@ -656,7 +651,8 @@ object JCUDACodeGen extends _Logging {
         |
         |    public void processGPU() {
         |       
-        |       CUmodule module = GPUSparkEnv.get().cudaManager().getModule("${cf.resource}");
+	|       inpitr.hasNext();
+        |       CUmodule module = GPUSparkEnv.get().cudaManager().getModule("${cf.resource}", blockID);
         |       ${ if (cf.stagesCount.isEmpty) {
 		 s"""| blockSizeX = new int[1];
 		     | gridSizeX = new int[1];
@@ -677,13 +673,16 @@ object JCUDACodeGen extends _Logging {
         |       cudaStream_t stream = new cudaStream_t();
         |       JCuda.cudaStreamCreateWithFlags(stream, JCuda.cudaStreamNonBlocking);
         |       CUstream cuStream = new CUstream();
+        |       JCudaDriver.cuStreamCreate(cuStream, 0);
         |
-	|       inpitr.hasNext();
 	|       Boolean enterLoop = true;
 	|       if (!((cached & 2) > 0) ${getStmt(variables,List("checkLoop"),"")} ) {
 	|         enterLoop = true;
 	|       } else {
 	|         enterLoop = false;
+	|         if (inpitr.hasNext()) {
+	|           allocateMemory((InternalRow) inpitr.next(), cuStream);
+	|         }
 	|       }
 	|
 	|       if (enterLoop){
@@ -703,7 +702,6 @@ object JCUDACodeGen extends _Logging {
         |       // Copy data from Host to Device
         |       ${getStmt(variables,List("memcpyH2D"),"")}
         |       cuCtxSynchronize();
-        |
         | ${
             if (cf.stagesCount.isEmpty) {
               s"""
@@ -711,7 +709,6 @@ object JCUDACodeGen extends _Logging {
                  |    Pointer.to(new int[]{numElements})
                  |    ${getStmt(variables, List("kernel-param"), "")}
                  |  );
-                 |
                  |  // Call the kernel function.
                  |  cuLaunchKernel(function,
                  |    gridSizeX[0], 1, 1,      // Grid dimension
@@ -729,7 +726,6 @@ object JCUDACodeGen extends _Logging {
                  |      ,Pointer.to(new int[]{stage})   // Stage number
                  |      ,Pointer.to(new int[]{stages})   // Total Stages
                  |    );
-                 |
                  |    // Call the kernel function.
                  |    cuLaunchKernel(function,
                  |      gridSizeX[stage], 1, 1,      // Grid dimension

@@ -35,5 +35,15 @@ object CUDAUtils {
   }
 
   type _Logging = Logging
+
+  def md5HashObj(obj: AnyRef) : String = {
+    val text = obj.toString()
+    java.security.MessageDigest.getInstance("MD5").digest(text.getBytes)
+      .map(0xFF & _).map {
+      "%02x".format(_)
+    }.foldLeft("") {
+      _ + _
+    } + "_" + obj.hashCode()
+  }
 }
 

@@ -57,7 +57,10 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 
     val childRDD = child.execute()
 
-    childRDD.mapPartitions{ iter =>
+    val r = scala.util.Random
+    val uniq = r.nextInt(99999)
+
+    childRDD.mapPartitionsWithIndex{ (partNum, iter) =>
       val jcudaIterator = JCUDACodeGen.generate(inputSchema,
                      outputSchema,cf,constArgs, outputArraySizes)
       val list = new mutable.ListBuffer[InternalRow]
@@ -79,12 +82,10 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 
       val imgpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]] =  List(curPlanPtrs, childPlanPtrs).asJava
 
-      val (stages, userGridSizes, userBlockSizes) = JCUDACodeGen.getUserDimensions(list.size)
-
-      val r = scala.util.Random
+      val (stages, userGridSizes, userBlockSizes) = JCUDACodeGen.getUserDimensions(cf, list.size)
 
       jcudaIterator.init(list.toIterator.asJava, constArgs,
-                list.size, cached, imgpuPtrs, r.nextInt(99999), userGridSizes, userBlockSizes, stages)
+                list.size, cached, imgpuPtrs, partNum, userGridSizes, userBlockSizes, stages)
 
       new Iterator[InternalRow] {
         override def hasNext: Boolean = jcudaIterator.hasNext()
@@ -92,8 +93,8 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
         override def next: InternalRow =
           InternalRow(outexprEnc
             .resolveAndBind(getAttributes(outputEncoder.schema))
-            .fromRow(jcudaIterator.next()))
-            // .fromRow(jcudaIterator.next().copy()))
+            // .fromRow(jcudaIterator.next()))
+             .fromRow(jcudaIterator.next().copy()))
       }
     }
   }
@@ -130,22 +131,20 @@ case class MAPGPU[T: Encoder, U : Encoder](func: DSCUDAFunction,
 }
 
 object GPUOperators extends Strategy {
-  private val DScache = GPUSparkEnv.get.gpuMemoryManager.cachedGPUDS
-
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
     case MAPGPU(cf, args, outputArraySizes, child,inputEncoder, outputEncoder, outputObjAttr) =>
-
+      val DScache = GPUSparkEnv.get.gpuMemoryManager.cachedGPUDS
       // cached possible values : 0 - NoCache; 1 - plan is cached; 2 - child plan is cached;
-      var cached = if (DScache.contains(plan.toString())) 1 else 0
+      var cached = if (DScache.contains(md5HashObj(plan))) 1 else 0
       val modChildPlan = child match {
         case DeserializeToObject(_, _, lp) => lp
 	case _ => child
       }
-      cached = cached | (if (DScache.contains(modChildPlan.toString())) 2 else 0)
+      cached = cached | (if (DScache.contains(md5HashObj(modChildPlan))) 2 else 0)
 
       val logPlans = new Array[String](2)
-      logPlans(0) = plan.toString()
-      logPlans(1) = modChildPlan.toString()
+      logPlans(0) = md5HashObj(plan)
+      logPlans(1) = md5HashObj(modChildPlan)
 
       MAPGPUExec(cf, args, outputArraySizes, planLater(child),
         inputEncoder, outputEncoder, outputObjAttr, cached, logPlans) :: Nil
@@ -208,7 +207,7 @@ object CUDADSImplicits {
 	case _ => ds.queryExecution.optimizedPlan
       }
 
-      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(logPlan.toString())
+      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(md5HashObj(logPlan))
       ds
     }
 
@@ -217,8 +216,8 @@ object CUDADSImplicits {
         case SerializeFromObject(_, lp) => lp
 	case _ => ds.queryExecution.optimizedPlan
       }
-
-      GPUSparkEnv.get.gpuMemoryManager.unCacheGPUSlaves(logPlan.toString())
+  
+      GPUSparkEnv.get.gpuMemoryManager.unCacheGPUSlaves(md5HashObj(logPlan))
       ds
     }
 

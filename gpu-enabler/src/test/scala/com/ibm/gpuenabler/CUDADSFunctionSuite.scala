@@ -534,8 +534,9 @@ class CUDADSFunctionSuite extends FunSuite {
         val data = spark.range(1, n+1, 1, 16).cache()
         data.count()
         println("Data Generation Done")
-        val output: Long = data.mapExtFunc(2 * _, mapFunction).cacheGpu()
-          .reduceExtFunc(_ + _, reduceFunction)
+        val mapDS = data.mapExtFunc(2 * _, mapFunction).cacheGpu()
+        val output: Long = mapDS.reduceExtFunc(_ + _, reduceFunction)
+        mapDS.unCacheGpu()
         assert(output == n * (n + 1))
       } finally {
         spark.stop
@@ -950,8 +951,44 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
+test("Run map + map + map + reduce on rdds - Cached multiple partitions", GPUTest) {
+    val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
+    import spark.implicits._
+    val manager =  GPUSparkEnv.get.cudaManager
+    if (manager != null) {
+      val mapFunction = DSCUDAFunction(
+        "multiplyBy2",
+        Array("value"),
+        Array("value"),
+        ptxURL)
 
+      val dimensions = (size: Long, stage: Int) => stage match {
+        case 0 => (64, 256)
+        case 1 => (1, 1)
+      }
+      val reduceFunction = DSCUDAFunction(
+        "suml",
+        Array("value"),
+        Array("value"),
+        ptxURL,
+        Some((size: Long) => 2),
+        Some(dimensions), outputSize=Some(1))
 
+      val n = 100
+      try {
+        val output = spark.range(1, n+1, 1, 16)
+          .mapExtFunc(_ * 2, mapFunction).cacheGpu()
+          .mapExtFunc(_ * 2, mapFunction).cacheGpu()
+          .mapExtFunc(_ * 2, mapFunction).cacheGpu()
+          .reduceExtFunc(_ + _, reduceFunction)
+        assert(output == 4 * n * (n + 1))
+      } finally {
+        spark.stop
+      }
+    } else {
+      info("No CUDA devices, so skipping the test.")
+    }
+  }
 
 }
 
