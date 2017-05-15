@@ -65,6 +65,7 @@ object JCUDACodeGen extends _Logging {
     var hostVariableName = ""
     var deviceVariableName = ""
 
+    // Create variable names based on column names
     varType match {
       case _ if is(GPUINPUT) || is(CONST) => 
         hostVariableName = s"gpuInputHost_$colName"
@@ -76,6 +77,7 @@ object JCUDACodeGen extends _Logging {
         hostVariableName = s"directCopyHost_$colName"
     }
 
+    // Create variable's size based on column data type
     if(is(CONST))
       size = s"Math.abs($length) * Sizeof.${javaType.toUpperCase()}"
     else {
@@ -100,6 +102,7 @@ object JCUDACodeGen extends _Logging {
     if(boxType.eq("Integer")) boxType = "Int"
     if(boxType.eq("Byte")) boxType = ""
 
+    // Host Variable Declaration
     codeStmt += "declareHost" -> {
       if (is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1)) {
         s"""
@@ -120,6 +123,7 @@ object JCUDACodeGen extends _Logging {
       else ""
     }
 
+    //Device Variable Declaration
     codeStmt += "declareDevice" -> {
       if (is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1))
         s"private CUdeviceptr $deviceVariableName;\n"
@@ -127,6 +131,7 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    // Host Variable Allocation; If data is cached, skip the host allocation.
     codeStmt += "allocateHost" -> {
       if(is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1))
         s"""|pinMemPtr_$colName = new CUdeviceptr();
@@ -162,6 +167,8 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    // Device Variable Allocation; If data is cached, retrieve the GPU devicePtrs
+    // corresponding to it.
     codeStmt += "allocateDevice" -> {
       if (is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1))
         s"""|
@@ -177,6 +184,8 @@ object JCUDACodeGen extends _Logging {
        ""
     }
 
+    // If all input data to GPU is cached; we can skip iterating through the 
+    // data retrieval from previous logical plan.
     codeStmt += "checkLoop" -> {
       if (is(GPUINPUT)) {
           s""" || !inputCMap.containsKey(blockID + "gpuOutputDevice_${colName}") """
@@ -184,6 +193,7 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    // Read from internal row based on the data type; If data is cached; skip it.
     codeStmt += "readFromInternalRow" -> {
       if (is(GPUINPUT)) {
         if (isArray)
@@ -219,6 +229,8 @@ object JCUDACodeGen extends _Logging {
       else
         ""
     }
+
+    // Retrieve the free variable passed from user program
     codeStmt += "readFromConstArray" -> {
       if((is(CONST) && length != -1)) {
         s"""
@@ -231,6 +243,7 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    // Rewind the bytebuffer whenever required
     codeStmt += "rewind" -> {
       if(is(GPUINPUT) && is(GPUOUTPUT))
         s"""
@@ -240,6 +253,7 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    // Flip the bytebuffer whenever required
     codeStmt += "flip" -> {
       if(is(GPUINPUT) || (is(CONST) && length != -1))
         s"""
@@ -251,6 +265,7 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    // Copy Data from host to device memory
     codeStmt += "memcpyH2D" ->{
       if(is(GPUINPUT) || (is(CONST) && length != -1))
         s"""|if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
@@ -263,6 +278,7 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    // Wrap the device variable for creating kernel parameters
     codeStmt += "kernel-param" -> {
       if(is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
         if (!is(CONST) || length != -1)
@@ -273,6 +289,7 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    // Copy Data from device to host memory
     codeStmt += "memcpyD2H" -> {
       // TODO : Evaluate for performance;
       if(is(GPUOUTPUT)  || (is(GPUINPUT) && is(RDDOUTPUT)))
@@ -318,6 +335,7 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    // Create an Internal Row and populate it with the results from GPU
     codeStmt += "writeToInternalRow" -> {
       if(is(RDDOUTPUT)) {
         if(is(GPUINPUT) || is(GPUOUTPUT)) {
@@ -371,11 +389,7 @@ object JCUDACodeGen extends _Logging {
         variables += Variable("in_"+x,
           GPUINPUT | {
             if (outIdx > -1 && !outCol) RDDOUTPUT else 0
-          }
-          //  | {
-          //  if (outCol) GPUOUTPUT else 0
-          // }
-          ,
+          } ,
           inputSchema(inIdx).dataType,
           inIdx,
           outIdx,
@@ -389,8 +403,6 @@ object JCUDACodeGen extends _Logging {
     if (outputArraySizes.isEmpty) {
       cf._outputColumnsOrder.foreach {
         x => {
-          // val inCol = cf._inputColumnsOrder.exists(_.equals(x))
-          // if (! inCol) { // If args is found in GPUINPUT, skip this variable;
             val outIdx = findSchemaIndex(outputSchema, x)
 
             // GPU OUTPUT variables must be in the output -- TODO may need to relax
@@ -404,14 +416,11 @@ object JCUDACodeGen extends _Logging {
               1,
               cf.outputSize.getOrElse(0),
               ctx)
-          // }
         }
       }
     } else {
       assert(cf._outputColumnsOrder.length == outputArraySizes.length)
       cf._outputColumnsOrder.zip(outputArraySizes).foreach(col => {
-        // val inCol = cf._inputColumnsOrder.exists(_.equals(col._1))
-        // if (! inCol) { // If args is found in GPUINPUT, skip this variable;
 	  val outIdx = findSchemaIndex(outputSchema, col._1)
 
           // GPU OUTPUT variables must be in the output -- TODO may need to relax
@@ -425,7 +434,6 @@ object JCUDACodeGen extends _Logging {
             col._2, // User provided Array output size
             cf.outputSize.getOrElse(0),
             ctx)
-        // }
       })
     }
 
@@ -523,10 +531,8 @@ object JCUDACodeGen extends _Logging {
 
     val variables = createVariables(inputSchema,outputSchema,cf,args,outputArraySizes, ctx)
     val debugMode = !SparkEnv.get.conf.get("DebugMode","").isEmpty
-    if(debugMode)
+    if(debugMode == 2)
       println("Compile Existing File - DebugMode")
-   // else
-      // println("Generate Code")
 
     val codeBody =
       s"""
@@ -652,7 +658,7 @@ object JCUDACodeGen extends _Logging {
         |    public void processGPU() {
         |       
 	|       inpitr.hasNext();
-        |       CUmodule module = GPUSparkEnv.get().cudaManager().getModule("${cf.resource}", blockID);
+        |       CUmodule module = GPUSparkEnv.get().cudaManager().getModule("${cf.resource}");
         |       ${ if (cf.stagesCount.isEmpty) {
 		 s"""| blockSizeX = new int[1];
 		     | gridSizeX = new int[1];
@@ -760,41 +766,31 @@ object JCUDACodeGen extends _Logging {
       """.stripMargin
 
     val fpath = s"/tmp/GeneratedCode_${cf.funcName}.java"
-
-    def writeToFile(codeBody : String): Unit = {
-      val code = new CodeAndComment(codeBody,ctx.getPlaceHolderToComments())
-      val pw = new PrintWriter(new File(fpath))
-      pw.write(CodeFormatter.format(code))
-      pw.close()
-      // println("The generated file path = " + fpath)
-    }
-
-    if(debugMode)
+    val _codeBody = if(debugMode == 2)
       generateFromFile(fpath)
-    else {
-      writeToFile(codeBody)
-
-      val code = codeBody.split("\n").filter(!_.contains("REMOVE")).map(_ + "\n").mkString
-      val p = CodeGenerator.compile(new CodeAndComment(code, ctx.getPlaceHolderToComments())).
-        generate(ctx.references.toArray).asInstanceOf[JCUDACodegenIterator]
-
-      p
+    else if (debugMode == 1) {
+      val code = new CodeAndComment(codeBody,ctx.getPlaceHolderToComments())
+      writeToFile(code, fpath)
+      codeBody
+    } else {
+      codeBody
     }
-  }
 
-  def generateFromFile(fpath : String) : JCUDACodegenIterator = {
-
-    val ctx = new CodegenContext()
-
-    val c = scala.io.Source.fromFile(fpath).getLines()
-    val codeBody = c.filter(!_.contains("REMOVE")).map(x => x+"\n").mkString
-
-    val code = CodeFormatter.stripOverlappingComments(
-      new CodeAndComment(codeBody, ctx.getPlaceHolderToComments()))
-
-    val p = CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[JCUDACodegenIterator]
+    val code = _codeBody.split("\n").filter(!_.contains("REMOVE")).map(_ + "\n").mkString
+    val p = CodeGenerator.compile(new CodeAndComment(code, ctx.getPlaceHolderToComments())).
+        generate(ctx.references.toArray).asInstanceOf[JCUDACodegenIterator]
     p
   }
 
+  def writeToFile(code: CodeAndComment, fpath: String): Unit = {
+    println("The generated file path = " + fpath)
+    val pw = new PrintWriter(new File(fpath))
+    pw.write(CodeFormatter.format(code))
+    pw.close()
+  }
+
+  def generateFromFile(fpath : String) : String = {
+    scala.io.Source.fromFile(fpath).getLines().mkString
+  }
 }
 

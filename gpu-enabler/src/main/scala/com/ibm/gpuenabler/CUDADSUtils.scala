@@ -37,7 +37,6 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
                             outputObjAttr: Attribute,
                             cached: Int,
                             logPlans: Array[String])
-                            // gpuPtrs: Array[mutable.HashMap[String, CUdeviceptr]])
   extends ObjectConsumerExec with ObjectProducerExec  {
 
   lazy val inputSchema: StructType = inputEncoder.schema
@@ -57,35 +56,43 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 
     val childRDD = child.execute()
 
-    val r = scala.util.Random
-    val uniq = r.nextInt(99999)
-
     childRDD.mapPartitionsWithIndex{ (partNum, iter) =>
+      // Generate the JCUDA program to be executed and obtain the iterator object
       val jcudaIterator = JCUDACodeGen.generate(inputSchema,
                      outputSchema,cf,constArgs, outputArraySizes)
       val list = new mutable.ListBuffer[InternalRow]
       iter.foreach(x => 
         list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy())
 
-      // cached: 1 -> this logical plan is cached; 2 -> child logical plan is cached
+      // Get hold of hashmap for this Plan to store the GPU pointers from output parameters
       val curPlanPtrs: java.util.Map[String, CUdeviceptr] = if ((cached & 1) > 0) {
-          GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(0), null).asJava
-        } else {
+        GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(0), null).asJava
+      } else { // Return Empty Map
         Map[String, CUdeviceptr]().asJava
       }
 
-      val childPlanPtrs: java.util.Map[String, CUdeviceptr] =  if ((cached & 2) > 0) {
-        GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(1), null).asJava
-      } else {
-        Map[String, CUdeviceptr]().asJava
-      }
+      // Get hold of hashmap for the child Plan to use the GPU pointers for input parameters
+      val childPlanPtrs: java.util.Map[String, CUdeviceptr] =
+        if ((cached & 2) > 0) {
+          GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS
+		.getOrElse(logPlans(1), null).asJava
+        } else { // Return Empty Map
+          Map[String, CUdeviceptr]().asJava
+        }
 
-      val imgpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]] =  List(curPlanPtrs, childPlanPtrs).asJava
+      val imgpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]] =
+		List(curPlanPtrs, childPlanPtrs).asJava
 
-      val (stages, userGridSizes, userBlockSizes) = JCUDACodeGen.getUserDimensions(cf, list.size)
+      // Compute the GPU Grid Dimensions based on the input data size
+      // For user provided Dimensions; retrieve it along with the 
+      // respective stage information.
+      val (stages, userGridSizes, userBlockSizes) =
+              JCUDACodeGen.getUserDimensions(cf, list.size)
 
+      // Initialize the auto generated code's iterator
       jcudaIterator.init(list.toIterator.asJava, constArgs,
-                list.size, cached, imgpuPtrs, partNum, userGridSizes, userBlockSizes, stages)
+                list.size, cached, imgpuPtrs, partNum,
+                userGridSizes, userBlockSizes, stages)
 
       new Iterator[InternalRow] {
         override def hasNext: Boolean = jcudaIterator.hasNext()
@@ -93,7 +100,6 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
         override def next: InternalRow =
           InternalRow(outexprEnc
             .resolveAndBind(getAttributes(outputEncoder.schema))
-            // .fromRow(jcudaIterator.next()))
              .fromRow(jcudaIterator.next().copy()))
       }
     }
@@ -121,27 +127,34 @@ object MAPGPU
 }
 
 case class MAPGPU[T: Encoder, U : Encoder](func: DSCUDAFunction,
-                                           args : Array[Any],
-                                           outputArraySizes: Array[Int],
-                                           child: LogicalPlan,
-                                           inputEncoder: Encoder[T], outputEncoder: Encoder[U],
-                                           outputObjAttr: Attribute)
+			   args : Array[Any],
+			   outputArraySizes: Array[Int],
+			   child: LogicalPlan,
+			   inputEncoder: Encoder[T], outputEncoder: Encoder[U],
+			   outputObjAttr: Attribute)
   extends ObjectConsumer with ObjectProducer {
-  override def otherCopyArgs : Seq[AnyRef] = inputEncoder :: outputEncoder ::  Nil
+  override def otherCopyArgs : Seq[AnyRef] =
+				inputEncoder :: outputEncoder ::  Nil
 }
 
 object GPUOperators extends Strategy {
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-    case MAPGPU(cf, args, outputArraySizes, child,inputEncoder, outputEncoder, outputObjAttr) =>
+    case MAPGPU(cf, args, outputArraySizes, child,inputEncoder, outputEncoder,
+         outputObjAttr) =>
+      // Differentiate cache by setting:
+      // cached: 1 -> this logical plan is cached; 
+      // cached: 2 -> child logical plan is cached;
+      // cached: 0 -> NoCache;
       val DScache = GPUSparkEnv.get.gpuMemoryManager.cachedGPUDS
-      // cached possible values : 0 - NoCache; 1 - plan is cached; 2 - child plan is cached;
       var cached = if (DScache.contains(md5HashObj(plan))) 1 else 0
       val modChildPlan = child match {
         case DeserializeToObject(_, _, lp) => lp
 	case _ => child
       }
-      cached = cached | (if (DScache.contains(md5HashObj(modChildPlan))) 2 else 0)
+      cached |= (if(DScache.contains(md5HashObj(modChildPlan))) 2 else 0)
 
+      // Store the logical plan UID and pass it to physical plan as 
+      // cached it done with logical plan UID.
       val logPlans = new Array[String](2)
       logPlans(0) = md5HashObj(plan)
       logPlans(1) = md5HashObj(modChildPlan)
@@ -152,6 +165,13 @@ object GPUOperators extends Strategy {
   }
 }
 
+/**
+  * DSCUDAFunction: This case class is used to describe the CUDA kernel and 
+  *   maps the i/o parameters to the DataSet's column name on which this 
+  *   function is applied. Stages & Dimensions can be specified. If the
+  *   kernel is going to perform a reduce kind of operation, the output size
+  *   will be different from the input size, so it must be provided by the user
+  */
 case class DSCUDAFunction(
                            funcName: String,
                            _inputColumnsOrder: Seq[String] = null,
@@ -175,9 +195,23 @@ case class DSCUDAFunction(
   *
   */
 object CUDADSImplicits {
-
-  implicit class CUDADSFuncs[T: Encoder](ds: _ds[T]) {
-
+  implicit class CUDADSFuncs[T: Encoder](ds: _ds[T]) extends Serializable {
+    /**
+      * Return a new Dataset by applying a function to all elements of this Dataset.
+      *
+      * @param func  Specify the lambda to apply to all elements of this Dataset
+      * @param cf  Provide the ExternalFunction instance which points to the
+      *                 GPU native function to be executed for each element in
+      *                 this Dataset
+      * @param args Specify a list of free variable that need to be
+      *                           passed in to the GPU kernel function, if any
+      * @param outputArraySizes If the expected result is an array folded in a linear
+      *                         form, specific a sequence of the array length for every
+      *                         output columns
+      * @tparam U Result Dataset type
+      * @return Return a new Dataset of type U after executing the user provided
+      *         GPU function on all elements of this Dataset
+      */
     def mapExtFunc[U:Encoder](func: T => U,
                           cf: DSCUDAFunction,
                           args: Array[Any] = Array.empty,
@@ -188,6 +222,21 @@ object CUDADSImplicits {
             getLogicalPlan(ds)))
     }
 
+    /**
+      * Trigger a reduce action on all elements of this Dataset.
+      *
+      * @param func Specify the lambda to apply to all elements of this Dataset
+      * @param cf Provide the DSCUDAFunction instance which points to the
+      *                 GPU native function to be executed for each element in
+      *                 this Dataset
+      * @param args Specify a list of free variable that need to be
+      *                           passed in to the GPU kernel function, if any
+      * @param outputArraySizes If the expected result is an array folded in a linear
+      *                         form, specific a sequence of the array length for every
+      *                         output columns
+      * @return Return the result after performing a reduced operation on all
+      *         elements of this Dataset
+      */
     def reduceExtFunc(func: (T, T) => T,
                           cf: DSCUDAFunction,
                           args: Array[Any] = Array.empty,
@@ -201,6 +250,15 @@ object CUDADSImplicits {
 
     }
 
+    /**
+      * This function is used to mark the respective Dataset's data to
+      * be cached in GPU for future computation rather than cleaning it
+      * up every time the DataSet is processed. 
+      * 
+      * By marking an DataSet to cache in GPU, huge performance gain can
+      * be achieved as data movement between CPU memory and GPU 
+      * memory is considered costly.
+      */
     def cacheGpu(): Dataset[T] = {
       val logPlan = ds.queryExecution.optimizedPlan match {
         case SerializeFromObject(_, lp) => lp
@@ -211,6 +269,10 @@ object CUDADSImplicits {
       ds
     }
 
+    /**
+      * This function is used to clean up all the caches in GPU held
+      * by the respective DataSet on the various partitions.
+      */
     def unCacheGpu(): Dataset[T] = {
       val logPlan = ds.queryExecution.optimizedPlan match {
         case SerializeFromObject(_, lp) => lp

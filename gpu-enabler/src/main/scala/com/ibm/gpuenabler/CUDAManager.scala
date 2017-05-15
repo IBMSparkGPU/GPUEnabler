@@ -66,17 +66,13 @@ private class CUDAManager {
     count(0)
   }
 
-  def getModule(fname : String, partNum: Int ) : CUmodule = synchronized {
+  def getModule(fname : String) : CUmodule = synchronized {
     val ptxURL = getClass.getResource(fname)
-    val clm = cachedLoadModule(Left(ptxURL), partNum);
+    val clm = cachedLoadModule(Left(ptxURL));
     clm
   }
  
   private[gpuenabler] def cachedLoadModule(resource: Either[URL, (String, String)]): CUmodule = {
-    cachedLoadModule(resource, 0)
-  }
-  
-  private[gpuenabler] def cachedLoadModule(resource: Either[URL, (String, String)],  partNum: Int): CUmodule = {
     var resourceURL: URL = null
     var key: String = null
     var ptxString: String = null
@@ -93,6 +89,8 @@ private class CUDAManager {
     JCuda.cudaGetDevice(devIx)
  
     synchronized {
+      // Create Context one per device & ptx file. Every thread created later, should set this context
+      // before any CUDA related operation.
       val context:CUcontext = CUDAManagerCachedModule.getContext.getOrElseUpdate((key,devIx(0)), {
           val device: CUdevice = new CUdevice
           cuDeviceGet(device, 0)
@@ -103,6 +101,7 @@ private class CUDAManager {
           context
       })
 
+      // Make sure whether the current context is already set for this thread
       val prevcontext: CUcontext = new CUcontext
       cuCtxGetCurrent(prevcontext)
       if (prevcontext != context){
