@@ -533,7 +533,6 @@ class CUDADSFunctionSuite extends FunSuite {
       try {
         val data = spark.range(1, n+1, 1, 16).cache()
         data.count()
-        println("Data Generation Done")
         val mapDS = data.mapExtFunc(2 * _, mapFunction).cacheGpu()
         val output: Long = mapDS.reduceExtFunc(_ + _, reduceFunction)
         mapDS.unCacheGpu()
