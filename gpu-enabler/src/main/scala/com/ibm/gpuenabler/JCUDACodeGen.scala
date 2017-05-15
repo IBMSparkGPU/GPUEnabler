@@ -21,9 +21,11 @@ import java.io.{File, PrintWriter}
 import org.apache.spark.SparkEnv
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.types._
 import scala.collection.mutable.ArrayBuffer
+import com.google.common.cache.{CacheBuilder, CacheLoader}
 import org.apache.spark.sql.gpuenabler.CUDAUtils._
 
 /**
@@ -530,7 +532,7 @@ object JCUDACodeGen extends _Logging {
     val ctx = new CodegenContext()
 
     val variables = createVariables(inputSchema,outputSchema,cf,args,outputArraySizes, ctx)
-    val debugMode = !SparkEnv.get.conf.get("DebugMode","").isEmpty
+    val debugMode = SparkEnv.get.conf.getInt("DebugMode", 0)
     if(debugMode == 2)
       println("Compile Existing File - DebugMode")
 
@@ -777,10 +779,23 @@ object JCUDACodeGen extends _Logging {
     }
 
     val code = _codeBody.split("\n").filter(!_.contains("REMOVE")).map(_ + "\n").mkString
-    val p = CodeGenerator.compile(new CodeAndComment(code, ctx.getPlaceHolderToComments())).
+//      val p = CodeGenerator.compile(new CodeAndComment(code, ctx.getPlaceHolderToComments())).
+//        generate(ctx.references.toArray).asInstanceOf[JCUDACodegenIterator]
+
+      val p = cache.get(new CodeAndComment(code, ctx.getPlaceHolderToComments())).
         generate(ctx.references.toArray).asInstanceOf[JCUDACodegenIterator]
     p
   }
+
+  private val cache = CacheBuilder.newBuilder()
+    .maximumSize(100)
+    .build(
+      new CacheLoader[CodeAndComment, GeneratedClass]() {
+        override def load(code: CodeAndComment): GeneratedClass = {
+          val result = CodeGenerator.compile(code)
+          result
+        }
+      })
 
   def writeToFile(code: CodeAndComment, fpath: String): Unit = {
     println("The generated file path = " + fpath)
