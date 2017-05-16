@@ -18,10 +18,8 @@
 package com.ibm.gpuenabler
 
 import java.util.Random
-
 import com.ibm.gpuenabler.CUDADSImplicits._
 import org.apache.spark.sql.SparkSession
-
 import scala.language.implicitConversions
 import scala.math._
 
@@ -30,16 +28,6 @@ object SparkDSLR {
   val rand = new Random(42)
 
   case class DataPoint(x: Array[Double], y: Double)
-
-  case class Results(result1: Array[Double], result2: Array[Double])
-
-  def dmulvsMod(x: Array[Double], c: Double) : Results =
-    Results(Array.tabulate(x.length)(i => x(i) * c), Array.tabulate(x.length)(i => x(i) * c))
-  def daddvvMod(R1: Results, R2: Results) : Results = {
-	println("R1.result2.length : " + R1.result1.length + " R2.result2.length " + R2.result1.length)
-    Results(Array.empty, Array.tabulate[Double](R2.result2.length)(i => R1.result2(i) + R2.result2(i)))
-   }
-
 
   def dmulvs(x: Array[Double], c: Double) : Array[Double] =
     Array.tabulate(x.length)(i => x(i) * c)
@@ -74,9 +62,6 @@ object SparkDSLR {
     showWarning()
 
     val masterURL = if (args.length > 0) args(0) else "local[*]"
-    // val sparkConf = new SparkConf().setAppName("SparkGPULR").setMaster(masterURL)
-    // val sc = new SparkContext(sparkConf)
-
     val spark = SparkSession.builder().master(masterURL).appName("SparkDSLR").getOrCreate()
     import spark.implicits._
 
@@ -86,83 +71,87 @@ object SparkDSLR {
     val ITERATIONS = if (args.length > 4) args(4).toInt else 5
 
     val R = 0.7  // Scaling factor
+    val ptxURL = "/SparkGPUExamples.ptx"
 
+    val mapFunction = spark.sparkContext.broadcast(
+      DSCUDAFunction(
+        "dsmapAll",
+        Array("x", "y"),
+        Array("value"),
+        ptxURL))
     val threads = 1024
     val blocks = min((N + threads- 1) / threads, 1024)
     val dimensions = (size: Long, stage: Int) => stage match {
       case 0 => (blocks, threads)
     }
-
-    //val ptxURL = SparkDSLR.getClass.getResource("/SparkGPUExamples.ptx")
-    val ptxURL = "/SparkGPUExamples.ptx"
-    val mapFunction = spark.sparkContext.broadcast(
-        new DSCUDAFunction(
-        "dsmapAll",
-        Array("x", "y"),
-        Array("result1"),
-        ptxURL))
-    
     val reduceFunction = spark.sparkContext.broadcast(
-      new DSCUDAFunction(
+      DSCUDAFunction(
         "dsblockReduce",
-        Array("result1"),
-        Array("result2"),
+        Array("value"),
+        Array("value"),
         ptxURL,
-        outputSize=Some(1)))
+        Some((size: Long) => 1),
+        Some(dimensions), outputSize=Some(1)))
 
-    val skeleton = spark.range(1, N, 1, numSlices)
-    val points = skeleton.map(i => generateData(i, N, D, R)).cache
-    points.count()
+    def generateData: Array[DataPoint] = {
+      def generatePoint(i: Int): DataPoint = {
+        val y = if (i % 2 == 0) -1 else 1
+        val x = Array.fill(D){rand.nextGaussian + y * R}
+        DataPoint(x, y)
+      }
+      Array.tabulate(N)(generatePoint)
+    }
 
-    println("Data generation done")
+    val pointsCached = spark.sparkContext.parallelize(generateData, numSlices).cache()
+    val pointsColumnCached = pointsCached.toDS().cache().cacheGpu()
 
     // Initialize w to a random value
     var wCPU = Array.fill(D){2 * rand.nextDouble - 1}
-    var w = Array.tabulate(D)(i => wCPU(i))
+    var wGPU = Array.tabulate(D)(i => wCPU(i))
 
-    printf("numSlices=%d, N=%d, D=%d, ITERATIONS=%d\n", numSlices, N, D, ITERATIONS)
-    points.cacheGpu()
-
-    val now = System.nanoTime
-
-/*
-      val wbc = spark.sparkContext.broadcast(w)
-      val mapDS = points.mapExtFunc((p: DataPoint) =>
-        dmulvsMod(p.x, (1 / (1 + exp(-p.y * ddotvv(wbc.value, p.x))) - 1) * p.y),
-        mapFunction.value, Array(wbc.value, D), outputArraySizes = Array(D)
-      )
- 	mapDS.select('result1, 'result2).show()
-      val gradient = mapDS.reduceExtFunc((x: Results, y: Results) => daddvvMod(x, y),
-        reduceFunction.value, Array(D), outputArraySizes = Array(D))
-	
-      gradient.result2.foreach(println)
-*/
+    println("============ GPU =======================")
+    print("Initial Weights :: ")
+    wGPU.take(3).foreach(y => print(y + ", "))
+    println(" ... ")
 
     for (i <- 1 to ITERATIONS) {
-      println("GPU iteration " + i)
-      val wbc = spark.sparkContext.broadcast(w)
-      val mapDS = points.mapExtFunc((p: DataPoint) =>
-        dmulvsMod(p.x, (1 / (1 + exp(-p.y * ddotvv(wbc.value, p.x))) - 1) * p.y),
-        mapFunction.value, Array(wbc.value, D), outputArraySizes = Array(D)
-      ).cacheGpu
-      val gradient = mapDS.reduceExtFunc((x: Results, y: Results) => daddvvMod(x, y),
-        reduceFunction.value, Array(D), outputArraySizes = Array(D))
-      mapDS.unCacheGpu()
-      w = dsubvv(w, gradient.result2)
+      val wGPUbcast = spark.sparkContext.broadcast(wGPU)
+ 
+      val gradient = pointsColumnCached.mapExtFunc((p: DataPoint) =>
+        dmulvs(p.x,  (1 / (1 + exp(-p.y * (ddotvv(wGPU, p.x)))) - 1) * p.y),
+        mapFunction.value, 
+        Array(wGPUbcast.value, D), 
+        outputArraySizes = Array(D)
+      ).reduceExtFunc((x: Array[Double], y: Array[Double]) => daddvv(x, y),
+        reduceFunction.value, 
+        Array(D), 
+        outputArraySizes = Array(D))
+
+      wGPU = dsubvv(wGPU, gradient)
+
+      print(s"Iteration $i :: Weights :: ")
+      wGPU.take(3).foreach(y => print(y + ", "))
+      println(" ... ")
+    }
+    pointsColumnCached.unCacheGpu().unpersist()
+
+    wGPU.take(5).foreach(y => print(y + ", "))
+    print(" .... ")
+    wGPU.takeRight(5).foreach(y => print(y + ", "))
+    println()	
+
+    println("============ CPU =======================")
+    for (i <- 1 to ITERATIONS) {
+      val gradient = pointsCached.map { p =>
+        dmulvs(p.x,  (1 / (1 + exp(-p.y * (ddotvv(wCPU, p.x)))) - 1) * p.y)
+      }.reduce((x: Array[Double], y: Array[Double]) => daddvv(x, y))
+      wCPU = dsubvv(wCPU, gradient)
     }
 
-    val ms = (System.nanoTime - now) / 1000000
-    println("Elapsed time: %d ms".format(ms))
-
-    // pointsColumnCached.unCacheGpu()
-    points.unCacheGpu()
-
-    w.take(5).foreach(y => print(y + ", "))
+    wCPU.take(5).foreach(y => print(y + ", "))
     print(" .... ")
-    w.takeRight(5).foreach(y => print(y + ", "))
+    wCPU.takeRight(5).foreach(y => print(y + ", "))
     println()
-
-    println("===================================")
 
   }
 }

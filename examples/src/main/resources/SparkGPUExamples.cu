@@ -349,11 +349,8 @@ void dsblockReduce(int count, double *data, double * result, int user_D) {
 
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
 #if (__CUDA_ARCH__ >= 300)
-    if (idx == 0) {
-	printf("REDUCE count : %d, user_D : %d \n", count, user_D);
-    }
     if (idx < count)
-       deviceReduceArrayKernelj(data, data, user_D, count);
+       deviceReduceArrayKernelj(data, result, user_D, count);
 
 #else
     printf("not supported");
@@ -364,11 +361,6 @@ extern "C"
 __global__ void
 dsmapAll(int count, double *x, double *y, double *result, double *w, int user_D) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
-
-    if (idx == 0) {
-	printf("MAP count : %d, user_D : %d \n", count, user_D);
-    }
-
 
     if(idx < count)
         map(&result[idx * user_D], &x[idx * user_D ], y[idx],w, user_D);
