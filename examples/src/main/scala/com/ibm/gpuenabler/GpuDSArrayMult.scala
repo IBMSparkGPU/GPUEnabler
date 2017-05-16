@@ -42,14 +42,14 @@ object GpuDSArrayMult {
     // 1. Sample Map Operation - multiple every element in the array by 2
     val mulFunc = DSCUDAFunction("multiplyBy2", Seq("value"), Seq("value"), ptxURL)
 
-    val N = 100000
+    val N: Long = 100000
 
-    val dataPts = ss.range(1, N+1, 1, 1)
+    val dataPts = ss.range(1, N+1, 1, 10).cache
     val results = dataPts.mapExtFunc(_ * 2, mulFunc).collect()
     println("Count is " + results.length)
     assert(results.length == N)
 
-    val expResults = (1 to N).map(_ * 2)
+    val expResults = (1 to N.toInt).map(_ * 2)
     assert(results.sameElements(expResults))
 
     // 2. Sample Reduce Operation - Sum of all elements in the array
@@ -70,6 +70,7 @@ object GpuDSArrayMult {
           .reduceExtFunc(_ + _, sumFunc)
 
     println("Output is "+ results2)
+    println("Expected is " + (N * (N + 1)))
     assert(results2 == N * (N + 1))
 
     // 3. Dataset - GPU Map - Dataset Operation.

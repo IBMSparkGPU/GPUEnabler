@@ -33,7 +33,7 @@ __global__ void suml(int size, long *input, long *output, int stage, int totalSt
     if (stage == 0) {
         if (ix < size) {
             assert(jump == blockDim.x * gridDim.x);
-            int result = 0;
+            long result = 0;
             for (long i = ix; i < size; i += jump) {
                 result += input[i];
             }
@@ -41,7 +41,7 @@ __global__ void suml(int size, long *input, long *output, int stage, int totalSt
         }
     } else if (ix == 0) {
         const long count = (size < (long)jump) ? size : (long)jump;
-        int result = 0;
+        long result = 0;
         for (long i = 0; i < count; ++i) {
             result += input[i];
         }
