@@ -29,13 +29,12 @@ object GpuDSArrayMult {
 
   def main(args : Array[String]): Unit = {
 
+    val ss = org.apache.spark.sql.SparkSession.builder.master("local[*]").appName("test").getOrCreate()
+    import ss.implicits._
     if(args.length > 0) {
       println("Setting debug Mode" + args(0))
       SparkEnv.get.conf.set("DebugMode", args(0))
     }
-
-    val ss = org.apache.spark.sql.SparkSession.builder.master("local[*]").appName("test").getOrCreate()
-    import ss.implicits._
 
     val ptxURL = "/GpuEnablerExamples.ptx"
 
