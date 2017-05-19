@@ -51,6 +51,31 @@ __global__ void suml(int size, long *input, long *output, int stage, int totalSt
 
 
 extern "C"
+// test reduce kernel that sums elements
+__global__ void sumlo(int *size, long *input, long *output, int *stage, int *totalStages) {
+    const long ix = threadIdx.x + blockIdx.x * (long)blockDim.x;
+    const int jump = 64 * 256;
+    if (*stage == 0) {
+        if (ix < *size) {
+            assert(jump == blockDim.x * gridDim.x);
+            long result = 0;
+            for (long i = ix; i < *size; i += jump) {
+                result += input[i];
+            }
+            input[ix] = result;
+        }
+    } else if (ix == 0) {
+        const long count = (*size < (long)jump) ? *size : (long)jump;
+        long result = 0;
+        for (long i = 0; i < count; ++i) {
+            result += input[i];
+        }
+        output[0] = result;
+    }
+}
+
+
+extern "C"
 __global__ void add(int n, long *a, long *b, long *sum)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -117,6 +142,16 @@ __global__ void multiplyBy2(int size, const long *in, long *out) {
     const int ix = threadIdx.x + blockIdx.x * blockDim.x;
 
     if (ix < size) {
+        out[ix] = in[ix] * 2;
+    }
+}
+
+extern "C"
+// another simple test kernel
+__global__ void multiplyBy2o(int *size, const long *in, long *out) {
+    const int ix = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (ix < *size) {
         out[ix] = in[ix] * 2;
     }
 }

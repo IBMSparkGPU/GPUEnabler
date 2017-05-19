@@ -506,7 +506,7 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
- test("Run map + reduce on rdds with 1,000,000 elements - multiple partitions", GPUTest) {
+ test("Run map + reduce on rdds with 100,000,000 elements - multiple partitions", GPUTest) {
     val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -529,7 +529,7 @@ class CUDADSFunctionSuite extends FunSuite {
         Some((size: Long) => 2),
         Some(dimensions), outputSize=Some(1))
 
-      val n: Long = 1000000L
+      val n: Long = 100000000L
       try {
         val data = spark.range(1, n+1, 1, 16).cache()
         data.count()
