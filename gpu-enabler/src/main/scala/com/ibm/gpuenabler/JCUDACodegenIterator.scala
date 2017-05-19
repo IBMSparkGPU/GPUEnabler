@@ -23,7 +23,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 /**
   * Interface for generated predicate
   */
-abstract class JCUDACodegenIterator {
+abstract class JCUDACodegenIterator extends Iterator[InternalRow] {
   def hasNext() : Boolean
   def next() : InternalRow
   def init(itr : java.util.Iterator[InternalRow], args: Array[Any],size : Int,

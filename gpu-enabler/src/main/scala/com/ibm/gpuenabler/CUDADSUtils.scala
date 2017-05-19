@@ -29,6 +29,7 @@ import org.apache.spark.sql.types.StructType
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import org.apache.spark.sql.gpuenabler.CUDAUtils._
+import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 
 case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
                             outputArraySizes: Array[Int],
@@ -43,6 +44,7 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
   lazy val outputSchema: StructType = outputEncoder.schema
 
   override def output: Seq[Attribute] = outputObjAttr :: Nil
+  override def outputPartitioning: Partitioning = child.outputPartitioning
 
   override lazy val metrics = Map(
     "numOutputRows" -> SQLMetrics.createMetric(sparkContext,
@@ -61,8 +63,6 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       val jcudaIterator = JCUDACodeGen.generate(inputSchema,
                      outputSchema,cf,constArgs, outputArraySizes)
       val list = new mutable.ListBuffer[InternalRow]
-      iter.foreach(x => 
-        list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy())
 
       // Get hold of hashmap for this Plan to store the GPU pointers from output parameters
       val curPlanPtrs: java.util.Map[String, CUdeviceptr] = if ((cached & 1) > 0) {
@@ -83,23 +83,37 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       val imgpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]] =
 		List(curPlanPtrs, childPlanPtrs).asJava
 
+      val dataSize = {
+        val now1 = System.nanoTime
+        var size = 0
+        iter.foreach(x => {
+            list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy()
+	    size += 1
+        })
+        size
+      } 
+
       // Compute the GPU Grid Dimensions based on the input data size
       // For user provided Dimensions; retrieve it along with the 
       // respective stage information.
       val (stages, userGridSizes, userBlockSizes) =
-              JCUDACodeGen.getUserDimensions(cf, list.size)
+              JCUDACodeGen.getUserDimensions(cf, dataSize)
 
       // Initialize the auto generated code's iterator
       jcudaIterator.init(list.toIterator.asJava, constArgs,
-                list.size, cached, imgpuPtrs, partNum,
+                dataSize, cached, imgpuPtrs, partNum,
                 userGridSizes, userBlockSizes, stages)
+
+      jcudaIterator.hasNext()
+
+      val outEnc = outexprEnc
+        .resolveAndBind(getAttributes(outputEncoder.schema))
 
       new Iterator[InternalRow] {
         override def hasNext: Boolean = jcudaIterator.hasNext()
 
         override def next: InternalRow =
-          InternalRow(outexprEnc
-            .resolveAndBind(getAttributes(outputEncoder.schema))
+          InternalRow(outEnc
              .fromRow(jcudaIterator.next().copy()))
       }
     }

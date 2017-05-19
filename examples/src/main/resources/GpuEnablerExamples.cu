@@ -155,3 +155,4 @@ __global__ void multiplyBy2o(int *size, const long *in, long *out) {
         out[ix] = in[ix] * 2;
     }
 }
+
