@@ -1,1 +1,1 @@
-{ "func":{ "fname":"arrayTest", "ptxPath":"/GpuEnablerExamples.ptx" }, "inputArgs":[ {"length":"1", "name":"factor"}, {"length":"1" ,"name":"arr"}], "outputArgs":[ {"length":"3","name":"result"} ] }
+{ "func":{ "fname":"arrayMult", "ptxPath":"/GpuEnablerExamples.ptx" }, "inputArgs":[ {"length":"1", "name":"factor"}, {"length":"1" ,"name":"arr"}], "outputArgs":[ {"length":"3","name":"result"} ] }
