@@ -350,7 +350,7 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
               val (ptr, buffer) = allocPinnedHeap(size)
               inputArr.foreach(x => {
                 buffer.position(bufferOffset)
-                buffer.asDoubleBuffer().put(priv_getter(x).asInstanceOf[Array[Long]], 0, arrLength)
+                buffer.asLongBuffer().put(priv_getter(x).asInstanceOf[Array[Long]], 0, arrLength)
                 bufferOffset += arrLength * LONG_COLUMN.bytes
                 // bufferOffset += col.memoryUsage(arrLength).toInt
               })
