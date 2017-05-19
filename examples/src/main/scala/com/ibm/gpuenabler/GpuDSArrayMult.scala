@@ -17,37 +17,74 @@
 
 package com.ibm.gpuenabler
 
-import org.apache.spark.sql.{Column, SQLContext}
-import org.apache.spark.{SparkConf, SparkContext, SparkEnv}
-import org.apache.spark.sql.gpuenabler.Utils._
-import org.apache.spark.sql.gpuenabler._
+import org.apache.spark.SparkEnv
+import org.apache.spark.sql.functions.lit
+import com.ibm.gpuenabler.CUDADSImplicits._
 
 object GpuDSArrayMult {
 
-   case class data(name : String, factor : Long, arr:Array[Long]);
-   case class data1(name: String,result:Array[Long]);
+  case class jsonData(name : String, factor: Long, arr: Array[Long])
+  case class inputData(name : String, factor: Long, arr: Array[Long], result: Array[Long])
+  case class outputData(name: String, result: Array[Long])
 
   def main(args : Array[String]): Unit = {
 
-    val conf = new SparkConf().setMaster("local").setAppName("test")
-    val sc = new SparkContext(conf)
-    val ss = org.apache.spark.sql.SparkSession.builder.getOrCreate()
+    val ss = org.apache.spark.sql.SparkSession.builder.master("local[*]").appName("test").getOrCreate()
     import ss.implicits._
-
-    println(args.toList)
-
     if(args.length > 0) {
       println("Setting debug Mode" + args(0))
       SparkEnv.get.conf.set("DebugMode", args(0))
     }
 
-    Utils.init(ss,Utils.homeDir +"GPUEnabler/examples/src/main/resources/GPUFuncs.json")
-    val ds = ss.read.json(Utils.homeDir + "GPUEnabler/examples/src/main/resources/data.json").as[data];
-    ds.map(x => x)
-      .mapGPU[data1]("arrayMult",(1 to 10).map(_ * 3).toArray, (1 to 35).map(_.toLong).toArray)
-      .select($"name", $"result")
-      .show()
+    val ptxURL = "/GpuEnablerExamples.ptx"
+
+    // 1. Sample Map Operation - multiple every element in the array by 2
+    val mulFunc = DSCUDAFunction("multiplyBy2", Seq("value"), Seq("value"), ptxURL)
+
+    val N: Long = 100000
+
+    val dataPts = ss.range(1, N+1, 1, 10).cache
+    val results = dataPts.mapExtFunc(_ * 2, mulFunc).collect()
+    println("Count is " + results.length)
+    assert(results.length == N)
+
+    val expResults = (1 to N.toInt).map(_ * 2)
+    assert(results.sameElements(expResults))
+
+    // 2. Sample Reduce Operation - Sum of all elements in the array
+    val dimensions = (size: Long, stage: Int) => stage match {
+      case 0 => (64, 256)
+      case 1 => (1, 1)
+    }
+    val sumFunc = DSCUDAFunction(
+      "suml",
+      Array("value"),
+      Array("value"),
+      ptxURL,
+      Some((size: Long) => 2),
+      Some(dimensions), outputSize=Some(1))
+
+    val results2 = dataPts
+          .mapExtFunc(_ * 2, mulFunc)
+          .reduceExtFunc(_ + _, sumFunc)
+
+    println("Output is "+ results2)
+    println("Expected is " + (N * (N + 1)))
+    assert(results2 == N * (N + 1))
+
+    // 3. Dataset - GPU Map - Dataset Operation.
+    val ds = ss.read.json("src/main/resources/data.json").as[jsonData]
+
+    val dds = ds.withColumn("result", lit(null: Array[Double] )).as[inputData]
+    
+    val dsFunc = DSCUDAFunction("arrayTest", Seq("factor", "arr"), Seq("result"), ptxURL)
+
+    val mapDS = dds.mapExtFunc(x => outputData(x.name, x.result),
+      dsFunc,
+      Array((1 to 10).map(_ * 3).toArray, (1 to 35).map(_.toLong).toArray),
+      outputArraySizes = Array(3))
+
+    mapDS.select($"name", $"result").show()
+
   }
-
 }
-

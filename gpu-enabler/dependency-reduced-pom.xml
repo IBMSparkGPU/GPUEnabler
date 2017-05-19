@@ -90,7 +90,7 @@
           <junitxml>.</junitxml>
           <forkMode>once</forkMode>
           <filereports>WDF TestSuite.txt</filereports>
-          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms22g -Xmx25G -Xmn20G</argLine>
+          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms42g -Xmx45G -Xmn40G</argLine>
         </configuration>
       </plugin>
       <plugin>
@@ -290,6 +290,12 @@
       <groupId>org.scala-lang</groupId>
       <artifactId>scala-library</artifactId>
       <version>2.11.8</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>10.0.1</version>
       <scope>compile</scope>
     </dependency>
     <dependency>
