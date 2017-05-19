@@ -21,7 +21,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
-import org.apache.spark.sql.catalyst.expressions.Attribute
+import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeRow}
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.metric.SQLMetrics
@@ -84,14 +84,17 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 		List(curPlanPtrs, childPlanPtrs).asJava
 
       val dataSize = {
-        val now1 = System.nanoTime
         var size = 0
         iter.foreach(x => {
-            list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy()
+//            val value = x.get(0, inputSchema)
+//            if (!value.isInstanceOf[UnsafeRow]) 
+              list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy()
+//            else 
+//              list += value.asInstanceOf[InternalRow]
 	    size += 1
         })
-        size
-      } 
+        size 
+      }
 
       // Compute the GPU Grid Dimensions based on the input data size
       // For user provided Dimensions; retrieve it along with the 

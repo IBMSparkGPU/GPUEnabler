@@ -9,8 +9,13 @@ import org.apache.spark.SparkConf
 
 object perfDebug {
   def main(args : Array[String]): Unit = {
+
+    val masterURL = if (args.length > 0) args(0) else "local[*]"
+    val n: Long = if (args.length > 1) args(1).toLong else 1000000L
+    val part = if (args.length > 2) args(2).toInt else 16
+
     val conf = new SparkConf(false).set("spark.executor.memory", "20g")
-    val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
+    val spark = SparkSession.builder().master(masterURL).appName("test").config(conf).getOrCreate()
     import spark.implicits._
 
     val sc = spark.sparkContext
@@ -36,9 +41,7 @@ object perfDebug {
       Some((size: Long) => 2),
       Some(dimensions))
 
-     val n: Long =   1000000L
-
-    val dataRDD = sc.parallelize(1 to n.toInt, 16).map(_.toLong).cache()
+    val dataRDD = sc.parallelize(1 to n.toInt, part).map(_.toLong).cache()
     dataRDD.count()
     val now = System.nanoTime
     var output: Long = dataRDD.mapExtFunc((x: Long) => 2 * x, mapFunction)
@@ -62,23 +65,24 @@ object perfDebug {
       Some((size: Long) => 2),
       Some(dimensions), outputSize=Some(1))
 
-    val data = spark.range(1, n+1, 1, 16).cache()
+    val data = spark.range(1, n+1, 1, part).cache()
+    // val data = dataRDD.toDS().cache()
     data.count()
 
     val now1 = System.nanoTime
     val mapDS = data.mapExtFunc(2 * _, dsmapFunction).cacheGpu()
-    mapDS.collect()
+    output = mapDS.reduceExtFunc(_ + _, dsreduceFunction)
     val ms1 = (System.nanoTime - now1) / 1000000
     println("DS Elapsed time: %d ms".format(ms1))
-
-    val now2 = System.nanoTime
-    output = mapDS.reduceExtFunc(_ + _, dsreduceFunction)
-    val ms2 = (System.nanoTime - now2) / 1000000
-    println("DS Elapsed time: %d ms".format(ms2))
     
     mapDS.unCacheGpu()
 
      println("DS Output is " + output)
+
+    val now3 = System.nanoTime
+     data.map(2 * _).reduce(_ + _)
+    val ms3 = (System.nanoTime - now3) / 1000000
+    println("CPU Elapsed time: %d ms".format(ms3))
    }
 
 }

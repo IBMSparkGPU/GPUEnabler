@@ -104,6 +104,8 @@ object SparkDSLR {
 
     val pointsCached = spark.sparkContext.parallelize(generateData, numSlices).cache()
     val pointsColumnCached = pointsCached.toDS().cache().cacheGpu()
+    pointsColumnCached.count()
+    println("Data Generation Done !!")
 
     // Initialize w to a random value
     var wCPU = Array.fill(D){2 * rand.nextDouble - 1}
@@ -114,25 +116,33 @@ object SparkDSLR {
     wGPU.take(3).foreach(y => print(y + ", "))
     println(" ... ")
 
+    val now = System.nanoTime
     for (i <- 1 to ITERATIONS) {
+      val now1 = System.nanoTime
       val wGPUbcast = spark.sparkContext.broadcast(wGPU)
  
-      val gradient = pointsColumnCached.mapExtFunc((p: DataPoint) =>
+      val mapDS = pointsColumnCached.mapExtFunc((p: DataPoint) =>
         dmulvs(p.x,  (1 / (1 + exp(-p.y * (ddotvv(wGPU, p.x)))) - 1) * p.y),
         mapFunction.value, 
         Array(wGPUbcast.value, D), 
         outputArraySizes = Array(D)
-      ).reduceExtFunc((x: Array[Double], y: Array[Double]) => daddvv(x, y),
+      ).cacheGpu()
+
+      val gradient = mapDS.reduceExtFunc((x: Array[Double], y: Array[Double]) => daddvv(x, y),
         reduceFunction.value, 
         Array(D), 
         outputArraySizes = Array(D))
 
+      mapDS.unCacheGpu()
+
       wGPU = dsubvv(wGPU, gradient)
 
-      print(s"Iteration $i :: Weights :: ")
-      wGPU.take(3).foreach(y => print(y + ", "))
-      println(" ... ")
+      val ms1 = (System.nanoTime - now1) / 1000000
+      println(s"Iteration $i Done in $ms1 ms")
     }
+    val ms = (System.nanoTime - now) / 1000000
+    println("GPU Elapsed time: %d ms".format(ms))
+
     pointsColumnCached.unCacheGpu().unpersist()
 
     wGPU.take(5).foreach(y => print(y + ", "))
@@ -141,12 +151,19 @@ object SparkDSLR {
     println()	
 
     println("============ CPU =======================")
+    val cnow = System.nanoTime
     for (i <- 1 to ITERATIONS) {
+      val cnow1 = System.nanoTime
       val gradient = pointsCached.map { p =>
         dmulvs(p.x,  (1 / (1 + exp(-p.y * (ddotvv(wCPU, p.x)))) - 1) * p.y)
       }.reduce((x: Array[Double], y: Array[Double]) => daddvv(x, y))
       wCPU = dsubvv(wCPU, gradient)
+      val cms1 = (System.nanoTime - cnow1) / 1000000
+      println(s"Iteration $i Done in $cms1 ms")
     }
+
+    val cms = (System.nanoTime - cnow) / 1000000
+    println("CPU Elapsed time: %d ms".format(cms))
 
     wCPU.take(5).foreach(y => print(y + ", "))
     print(" .... ")
