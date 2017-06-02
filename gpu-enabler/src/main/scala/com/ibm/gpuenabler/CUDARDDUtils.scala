@@ -320,21 +320,26 @@ object CUDARDDImplicits {
 
       val reducePartition: (TaskContext, Iterator[T]) => Option[T] =
         (ctx: TaskContext, data: Iterator[T]) => {
-          // Handle partitions with no data
-          if (data.length > 0) {
-            data match {
-              case col: HybridIterator[T] =>
-                if (col.numElements != 0) {
-                  val colIter = extfunc.compute[T, T](col, Seq(inputColSchema, outputColSchema),
-                    Some(1), outputArraySizes,
-                    inputFreeVariables, None).asInstanceOf[HybridIterator[T]]
-                  Some(colIter.next)
-                } else {
-                  None
-                }
-            }
-          } else None
-        }
+          data match {
+            case col: HybridIterator[T] =>
+              if (col.numElements != 0) {
+                val colIter = extfunc.compute[T, T](col, Seq(inputColSchema, outputColSchema),
+                  Some(1), outputArraySizes,
+                  inputFreeVariables, None).asInstanceOf[HybridIterator[T]]
+                Some(colIter.next)
+              } else {
+                None
+              }
+            // Handle partitions with no data
+            case _ =>
+              if (data.hasNext) {
+                Some(data.reduceLeft(cleanF))
+              }
+              else {
+                None
+              }
+          }
+      }
 
       var jobResult: Option[T] = None
       val mergeResult = (index: Int, taskResult: Option[T]) => {

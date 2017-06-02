@@ -83,18 +83,39 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       val imgpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]] =
 		List(curPlanPtrs, childPlanPtrs).asJava
 
-      val dataSize = {
-        var size = 0
+      val dataSize = if (!((cached & 2) > 0) || childPlanPtrs.isEmpty) {
+        var count = 0
         iter.foreach(x => {
-//            val value = x.get(0, inputSchema)
-//            if (!value.isInstanceOf[UnsafeRow]) 
-              list += inexprEnc.toRow(x.get(0, inputSchema).asInstanceOf[T]).copy()
-//            else 
-//              list += value.asInstanceOf[InternalRow]
-	    size += 1
+          count += 1
+          val value = x.get(0, inputSchema)
+          if (!value.isInstanceOf[UnsafeRow])
+            list += inexprEnc.toRow(value.asInstanceOf[T]).copy()
+          else
+            list += value.asInstanceOf[InternalRow]
         })
-        size 
+        GPUSparkEnv.get.cachedDSPartSize.getOrElseUpdate((logPlans(1), partNum), count)
+        count
+      } else {
+        if (iter.hasNext) {
+          // Populate only the first row as data is already there in GPU; Get the partition size;
+          val value = iter.next().get(0, inputSchema)
+          if (!value.isInstanceOf[UnsafeRow])
+            list += inexprEnc.toRow(value.asInstanceOf[T]).copy()
+          else
+            list += value.asInstanceOf[InternalRow]
+
+        GPUSparkEnv.get.cachedDSPartSize.getOrElseUpdate((logPlans(1), partNum), {
+          val count = iter.size + 1
+	  count
+        })
+        } else 0
       }
+
+       if ((cached & 1) > 0) {
+          GPUSparkEnv.get.cachedDSPartSize.put((logPlans(0), partNum), {
+              dataSize
+        })
+       }
 
       // Compute the GPU Grid Dimensions based on the input data size
       // For user provided Dimensions; retrieve it along with the 

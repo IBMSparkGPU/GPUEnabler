@@ -110,8 +110,8 @@ object SparkGPULR {
 
     val now = System.nanoTime
     for (i <- 1 to ITERATIONS) {
-      println("GPU iteration " + i)
       val wbc = sc.broadcast(w)
+    val now1 = System.nanoTime
       val mapRdd = points.mapExtFunc((p: DataPoint) =>
         dmulvs(p.x, (1 / (1 + exp(-p.y * (ddotvv(wbc.value, p.x)))) - 1) * p.y),
         mapFunction.value, outputArraySizes = Array(D),
@@ -119,6 +119,8 @@ object SparkGPULR {
       ).cacheGpu
       val gradient = mapRdd.reduceExtFunc((x: Array[Double], y: Array[Double]) => daddvv(x, y),
         reduceFunction.value, outputArraySizes = Array(D))
+    val ms1 = (System.nanoTime - now1) / 1000000
+    println(s"GPU iteration : $i in $ms1 ms")
       mapRdd.unCacheGpu()
       w = dsubvv(w, gradient)
     }
@@ -147,12 +149,14 @@ object SparkGPULR {
 
     val now2 = System.nanoTime
     for (i <- 1 to ITERATIONS) {
-      println("CPU iteration " + i)
       val wwCPU = sc.broadcast(wCPU)
+    val now1 = System.nanoTime
       val gradient = points.map((p: DataPoint) =>
         dmulvs1(p.x,  (1 / (1 + exp(-p.y * ddotvv(wwCPU.value, p.x))) - 1) * p.y)).reduce((x: DataOut1, y: DataOut1) => daddvv1(x, y))
 
       wCPU = dsubvv1(wCPU, gradient)
+    val ms1 = (System.nanoTime - now1) / 1000000
+    println(s"CPU iteration : $i in $ms1 ms")
     }
     val ms2 = (System.nanoTime - now2) / 1000000
     println("Elapsed time: %d ms".format(ms2))

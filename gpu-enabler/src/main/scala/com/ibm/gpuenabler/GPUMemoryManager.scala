@@ -20,7 +20,8 @@ package com.ibm.gpuenabler
 import jcuda.driver.CUdeviceptr
 import org.apache.spark.SparkException
 import org.apache.spark.gpuenabler.CUDAUtils._
-
+import java.util.concurrent.ConcurrentHashMap
+import scala.collection.JavaConverters._
 import scala.collection.mutable
 
 private[gpuenabler] case class RegisterGPUMemoryManager(id : String, slaveEndPointerRef: _RpcEndpointRef)
@@ -134,17 +135,25 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
                        val isDriver : Boolean,
                        val isLocal : Boolean) {
   
-  val cachedGPUPointersDS = new mutable.HashMap[String, mutable.HashMap[String, CUdeviceptr]]()
+//  val cachedGPUPointersDS = new mutable.HashMap[String, mutable.HashMap[String, CUdeviceptr]]()
+  val cachedGPUPointersDS = new ConcurrentHashMap[String, collection.concurrent.Map[String, CUdeviceptr]].asScala
+
   val cachedGPUDS = new mutable.ListBuffer[String]()
-  def getCachedGPUPointersDS : mutable.HashMap[String,
-    mutable.HashMap[String, CUdeviceptr]] = cachedGPUPointersDS
+
+//  def getCachedGPUPointersDS : mutable.HashMap[String,
+//    mutable.HashMap[String, CUdeviceptr]] = cachedGPUPointersDS
+  def getCachedGPUPointersDS : collection.concurrent.Map[String,
+    collection.concurrent.Map[String, CUdeviceptr]] = cachedGPUPointersDS
 
   def cacheGPU(lp : String): Unit = {
     if (!cachedGPUDS.contains(lp)) {
       cachedGPUDS += lp
     }
+//    cachedGPUPointersDS.getOrElseUpdate(lp, {
+//      new mutable.HashMap[String, CUdeviceptr]()
+//    })
     cachedGPUPointersDS.getOrElseUpdate(lp, {
-      new mutable.HashMap[String, CUdeviceptr]()
+      new ConcurrentHashMap[String, CUdeviceptr].asScala
     })
   }
 
