@@ -37,9 +37,11 @@ private[gpuenabler] case class CacheGPUDS(lp : String)
 private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) extends _ThreadSafeRpcEndpoint {
 
   val GPUMemoryManagerSlaves = new mutable.HashMap[String, _RpcEndpointRef]()
+  val cachedLP = scala.collection.mutable.ListBuffer.empty[String]
 
   def registerGPUMemoryManager(id : String, slaveEndpointRef: _RpcEndpointRef): Unit = {
     GPUMemoryManagerSlaves += id -> slaveEndpointRef
+    cachedLP.foreach(lp => tell(slaveEndpointRef, CacheGPUDS(lp)))
   }
 
   def unCacheGPU(rddId : Int): Unit = {
@@ -55,12 +57,14 @@ private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) ex
   }
 
   def unCacheGPU(lp : String): Unit = {
+    cachedLP -= lp
     for (slaveRef <- GPUMemoryManagerSlaves.values) {
       tell(slaveRef, UncacheGPUDS(lp))
     }
   }
 
   def cacheGPU(lp : String): Unit = {
+    cachedLP += lp
     for (slaveRef <- GPUMemoryManagerSlaves.values){
       tell(slaveRef, CacheGPUDS(lp))
     }
@@ -144,7 +148,6 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
 //    mutable.HashMap[String, CUdeviceptr]] = cachedGPUPointersDS
   def getCachedGPUPointersDS : collection.concurrent.Map[String,
     collection.concurrent.Map[String, CUdeviceptr]] = cachedGPUPointersDS
-
   def cacheGPU(lp : String): Unit = {
     if (!cachedGPUDS.contains(lp)) {
       cachedGPUDS += lp

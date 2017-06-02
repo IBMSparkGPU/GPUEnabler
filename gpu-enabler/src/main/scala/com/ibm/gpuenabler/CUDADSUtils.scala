@@ -36,7 +36,7 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
                             child: SparkPlan,
                             inputEncoder: Encoder[T], outputEncoder: Encoder[U],
                             outputObjAttr: Attribute,
-                            cached: Int,
+                            cached1: Int,
                             logPlans: Array[String])
   extends ObjectConsumerExec with ObjectProducerExec  {
 
@@ -59,6 +59,16 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
     val childRDD = child.execute()
 
     childRDD.mapPartitionsWithIndex{ (partNum, iter) =>
+
+      // Differentiate cache by setting:
+      // cached: 1 -> this logical plan is cached;
+      // cached: 2 -> child logical plan is cached;
+      // cached: 0 -> NoCache;
+      val DScache = GPUSparkEnv.get.gpuMemoryManager.cachedGPUDS
+      var cached = if (DScache.contains(logPlans(0))) 1 else 0
+      cached |= (if(DScache.contains(logPlans(1))) 2 else 0)
+
+
       // Generate the JCUDA program to be executed and obtain the iterator object
       val jcudaIterator = JCUDACodeGen.generate(inputSchema,
                      outputSchema,cf,constArgs, outputArraySizes)
@@ -191,6 +201,7 @@ object GPUOperators extends Strategy {
       }
       cached |= (if(DScache.contains(md5HashObj(modChildPlan))) 2 else 0)
 
+
       // Store the logical plan UID and pass it to physical plan as 
       // cached it done with logical plan UID.
       val logPlans = new Array[String](2)
@@ -302,7 +313,6 @@ object CUDADSImplicits {
         case SerializeFromObject(_, lp) => lp
 	case _ => ds.queryExecution.optimizedPlan
       }
-
       GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(md5HashObj(logPlan))
       ds
     }
