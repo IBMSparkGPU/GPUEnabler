@@ -93,23 +93,27 @@ object SparkDSLR {
         Some((size: Long) => 1),
         Some(dimensions), outputSize=Some(1)))
 
-    def generateData: Array[DataPoint] = {
-      def generatePoint(i: Int): DataPoint = {
-        val y = if (i % 2 == 0) -1 else 1
-        val x = Array.fill(D){rand.nextGaussian + y * R}
-        DataPoint(x, y)
-      }
-      Array.tabulate(N)(generatePoint)
-    }
-
-    val pointsCached = spark.sparkContext.parallelize(generateData, numSlices).cache()
-    val pointsColumnCached = pointsCached.toDS().cache().cacheGpu()
-    pointsColumnCached.count()
-    println("Data Generation Done !!")
+    val pointsCached = spark.range(1, N+1, 1, numSlices).map(i => generateData(i, N, D, R)).cache()
+    val pointsColumnCached = pointsCached.cacheGpu()
 
     // Initialize w to a random value
     var wCPU = Array.fill(D){2 * rand.nextDouble - 1}
     var wGPU = Array.tabulate(D)(i => wCPU(i))
+    val wbc1 = spark.sparkContext.broadcast(wGPU)
+
+    // Run first iteration so that the data is moved to GPU and get cached in GPU.
+    val m = pointsColumnCached.mapExtFunc((p: DataPoint) =>
+        dmulvs(p.x,  (1 / (1 + exp(-p.y * (ddotvv(wGPU, p.x)))) - 1) * p.y),
+        mapFunction.value,
+        Array(wbc1.value, D),
+        outputArraySizes = Array(D)
+      ).cacheGpu()
+    m.reduceExtFunc((x: Array[Double], y: Array[Double]) => daddvv(x, y),
+        reduceFunction.value,
+        Array(D),
+        outputArraySizes = Array(D))
+    m.unCacheGpu()
+    println("Data Generation Done !!")
 
     println("============ GPU =======================")
     print("Initial Weights :: ")
@@ -143,7 +147,7 @@ object SparkDSLR {
     val ms = (System.nanoTime - now) / 1000000
     println("GPU Elapsed time: %d ms".format(ms))
 
-    pointsColumnCached.unCacheGpu().unpersist()
+    pointsColumnCached.unCacheGpu()
 
     wGPU.take(5).foreach(y => print(y + ", "))
     print(" .... ")

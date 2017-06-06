@@ -97,21 +97,28 @@ object SparkGPULR {
 
     val skelton = sc.parallelize((1 to N), numSlices)
     val points = skelton.map(i => generateData(i, N, D, R)).cache
+    points.cacheGpu()
     points.count()
-
-    println("Data generation done")
 
     // Initialize w to a random value
     var wCPU = Array.fill(D){2 * rand.nextDouble - 1}
     var w = Array.tabulate(D)(i => wCPU(i))
 
     printf("numSlices=%d, N=%d, D=%d, ITERATIONS=%d\n", numSlices, N, D, ITERATIONS)
-    points.cacheGpu()
+    val wbc1 = sc.broadcast(w)
+    points.mapExtFunc((p: DataPoint) =>
+        dmulvs(p.x, (1 / (1 + exp(-p.y * (ddotvv(wbc1.value, p.x)))) - 1) * p.y),
+        mapFunction.value, outputArraySizes = Array(D),
+        inputFreeVariables = Array(wbc1.value)
+      ).cacheGpu.reduceExtFunc((x: Array[Double], y: Array[Double]) => daddvv(x, y),
+        reduceFunction.value, outputArraySizes = Array(D))
+
+    println("Data generation done")
 
     val now = System.nanoTime
     for (i <- 1 to ITERATIONS) {
       val wbc = sc.broadcast(w)
-    val now1 = System.nanoTime
+      val now1 = System.nanoTime
       val mapRdd = points.mapExtFunc((p: DataPoint) =>
         dmulvs(p.x, (1 / (1 + exp(-p.y * (ddotvv(wbc.value, p.x)))) - 1) * p.y),
         mapFunction.value, outputArraySizes = Array(D),
@@ -119,8 +126,8 @@ object SparkGPULR {
       ).cacheGpu
       val gradient = mapRdd.reduceExtFunc((x: Array[Double], y: Array[Double]) => daddvv(x, y),
         reduceFunction.value, outputArraySizes = Array(D))
-    val ms1 = (System.nanoTime - now1) / 1000000
-    println(s"GPU iteration : $i in $ms1 ms")
+      val ms1 = (System.nanoTime - now1) / 1000000
+      println(s"GPU iteration : $i in $ms1 ms")
       mapRdd.unCacheGpu()
       w = dsubvv(w, gradient)
     }
@@ -128,7 +135,6 @@ object SparkGPULR {
     val ms = (System.nanoTime - now) / 1000000
     println("Elapsed time: %d ms".format(ms))
 
-    // pointsColumnCached.unCacheGpu()
     points.unCacheGpu()
 
     w.take(5).foreach(y => print(y + ", "))
@@ -150,13 +156,13 @@ object SparkGPULR {
     val now2 = System.nanoTime
     for (i <- 1 to ITERATIONS) {
       val wwCPU = sc.broadcast(wCPU)
-    val now1 = System.nanoTime
+      val now1 = System.nanoTime
       val gradient = points.map((p: DataPoint) =>
         dmulvs1(p.x,  (1 / (1 + exp(-p.y * ddotvv(wwCPU.value, p.x))) - 1) * p.y)).reduce((x: DataOut1, y: DataOut1) => daddvv1(x, y))
 
       wCPU = dsubvv1(wCPU, gradient)
-    val ms1 = (System.nanoTime - now1) / 1000000
-    println(s"CPU iteration : $i in $ms1 ms")
+      val ms1 = (System.nanoTime - now1) / 1000000
+      println(s"CPU iteration : $i in $ms1 ms")
     }
     val ms2 = (System.nanoTime - now2) / 1000000
     println("Elapsed time: %d ms".format(ms2))

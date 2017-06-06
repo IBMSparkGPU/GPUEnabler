@@ -92,12 +92,14 @@ private class CUDAManager {
       // Create Context one per device & ptx file. Every thread created later, should set this context
       // before any CUDA related operation.
       val context:CUcontext = CUDAManagerCachedModule.getContext.getOrElseUpdate((key,devIx(0)), {
-        val executorId = SparkEnv.get.executorId match {
-          case "driver" => 0
-          case _ => SparkEnv.get.executorId.toInt
-        }
+        //  val executorId = SparkEnv.get.executorId match {
+        //    case "driver" => 0
+        //    case _ => SparkEnv.get.executorId.toInt
+        //  }
           val device: CUdevice = new CUdevice
-          cuDeviceGet(device, executorId % gpuCount)
+          // Make sure thread from an executor gets attached to the same GPU.
+          // cuDeviceGet(device, executorId % gpuCount)
+          cuDeviceGet(device, devIx(0))
           val context: CUcontext = new CUcontext
   
           cuCtxCreate(context, 0, device)

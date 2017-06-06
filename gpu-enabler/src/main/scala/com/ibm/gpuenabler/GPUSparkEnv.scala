@@ -54,6 +54,7 @@ private[gpuenabler] class GPUSparkEnv() {
   val isGPUCodeGenEnabled =
     isGPUEnabled && SparkEnv.get.conf.getBoolean("spark.gpu.codegen", false)
 
+  // Every executor maintains a cached list of partition size for a particular logical plan.
   val cachedDSPartSize = new ConcurrentHashMap[(String, Int), Int].asScala
 }
  

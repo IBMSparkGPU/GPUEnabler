@@ -41,10 +41,12 @@ object perfDebug {
       Some((size: Long) => 2),
       Some(dimensions))
 
-    val dataRDD = sc.parallelize(1 to n.toInt, part).map(_.toLong).cache()
+    val dataRDD = sc.parallelize(1 to n.toInt, part).map(_.toLong).cache().cacheGpu()
     dataRDD.count()
+    dataRDD.reduceExtFunc((x: Long, y: Long) => x + y, reduceFunction)
+
     val now = System.nanoTime
-    var output: Long = dataRDD.mapExtFunc((x: Long) => 2 * x, mapFunction)
+    var output: Long = dataRDD.mapExtFunc((x: Long) => 2 * x, mapFunction).cacheGpu()
       .reduceExtFunc((x: Long, y: Long) => x + y, reduceFunction)
     val ms = (System.nanoTime - now) / 1000000
     println("RDD Elapsed time: %d ms".format(ms))
@@ -65,9 +67,10 @@ object perfDebug {
       Some((size: Long) => 2),
       Some(dimensions), outputSize=Some(1))
 
-    val data = spark.range(1, n+1, 1, part).cache()
+    val data = spark.range(1, n+1, 1, part).cache().cacheGpu()
     // val data = dataRDD.toDS().cache()
     data.count()
+    data.reduceExtFunc(_ + _, dsreduceFunction)
 
     val now1 = System.nanoTime
     val mapDS = data.mapExtFunc(2 * _, dsmapFunction).cacheGpu()
