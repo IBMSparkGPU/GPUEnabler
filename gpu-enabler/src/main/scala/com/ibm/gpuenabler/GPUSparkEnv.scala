@@ -21,6 +21,8 @@ import jcuda.driver.{CUcontext, CUdevice}
 import jcuda.driver.JCudaDriver.{cuCtxCreate, cuDeviceGet}
 import org.apache.spark.SparkEnv
 import org.apache.spark.gpuenabler.CUDAUtils._
+import java.util.concurrent.ConcurrentHashMap
+import scala.collection.JavaConverters._
 import jcuda.runtime.JCuda
  
 private[gpuenabler] class GPUSparkEnv() {
@@ -51,6 +53,9 @@ private[gpuenabler] class GPUSparkEnv() {
   def gpuCount = if (isGPUEnabled) cudaManager.gpuCount else 0
   val isGPUCodeGenEnabled =
     isGPUEnabled && SparkEnv.get.conf.getBoolean("spark.gpu.codegen", false)
+
+  // Every executor maintains a cached list of partition size for a particular logical plan.
+  val cachedDSPartSize = new ConcurrentHashMap[(String, Int), Int].asScala
 }
  
 private[gpuenabler] object GPUSparkEnv {
