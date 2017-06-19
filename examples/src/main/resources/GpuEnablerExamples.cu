@@ -156,3 +156,13 @@ __global__ void multiplyBy2o(int *size, const long *in, long *out) {
     }
 }
 
+extern "C"
+// dummy kernel used to load the data to GPU
+__global__ void load(int size, const long *in) {
+    const int ix = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (ix < size) {
+    }
+}
+
+
