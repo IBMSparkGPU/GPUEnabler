@@ -40,6 +40,10 @@ object perfDebug {
       Seq(),
       Some((size: Long) => 2),
       Some(dimensions))
+    val loadFunction = new CUDAFunction(
+      "load",
+      Array("this"), Seq(),
+      ptxURL)
 
     val loadFunction = new CUDAFunction(
       "load",
@@ -63,6 +67,10 @@ object perfDebug {
       "multiplyBy2",
       Array("value"),
       Array("value"),
+      ptxURL1)
+    val dsloadFunction = DSCUDAFunction(
+      "load",
+      Array("value"), Seq(),
       ptxURL1)
 
     val dsreduceFunction = DSCUDAFunction(
