@@ -40,6 +40,7 @@ object perfDebug {
       Seq(),
       Some((size: Long) => 2),
       Some(dimensions))
+
     val loadFunction = new CUDAFunction(
       "load",
       Array("this"), Seq(),
@@ -63,10 +64,6 @@ object perfDebug {
       Array("value"),
       Array("value"),
       ptxURL1)
-    val dsloadFunction = DSCUDAFunction(
-      "load",
-      Array("value"), Seq(),
-      ptxURL1)
 
     val dsreduceFunction = DSCUDAFunction(
       "suml",
@@ -76,23 +73,22 @@ object perfDebug {
       Some((size: Long) => 2),
       Some(dimensions), outputSize=Some(1))
 
-    val data = spark.range(1, n+1, 1, part).cache().cacheGpu()
-    data.count()
-    // Load the data to GPU
-    data.reduceExtFunc((x1, x2) => x2 , dsloadFunction)
+    val data = spark.range(1, n+1, 1, part).cache() 
+    // Load the data to GPU and cache it
+    data.loadGpu()
 
     val now1 = System.nanoTime
     val mapDS = data.mapExtFunc(2 * _, dsmapFunction).cacheGpu()
     output = mapDS.reduceExtFunc(_ + _, dsreduceFunction)
     val ms1 = (System.nanoTime - now1) / 1000000
     println("DS Elapsed time: %d ms".format(ms1))
-    
-    mapDS.unCacheGpu()
+    println("DS Output is " + output)
 
-     println("DS Output is " + output)
+    mapDS.unCacheGpu()
+    data.unCacheGpu()
 
     val now3 = System.nanoTime
-     data.map(2 * _).reduce(_ + _)
+    data.map(2 * _).reduce(_ + _)
     val ms3 = (System.nanoTime - now3) / 1000000
     println("CPU Elapsed time: %d ms".format(ms3))
    }
