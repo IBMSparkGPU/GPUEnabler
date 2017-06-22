@@ -40,10 +40,15 @@ object perfDebug {
       Seq(),
       Some((size: Long) => 2),
       Some(dimensions))
+    val loadFunction = new CUDAFunction(
+      "load",
+      Array("this"), Seq(),
+      ptxURL)
 
     val dataRDD = sc.parallelize(1 to n.toInt, part).map(_.toLong).cache().cacheGpu()
     dataRDD.count()
-    dataRDD.reduceExtFunc((x: Long, y: Long) => x + y, reduceFunction)
+    // Load the data to GPU
+    dataRDD.reduceExtFunc((x1, x2) => x2 , loadFunction)
 
     val now = System.nanoTime
     var output: Long = dataRDD.mapExtFunc((x: Long) => 2 * x, mapFunction).cacheGpu()
@@ -58,6 +63,10 @@ object perfDebug {
       Array("value"),
       Array("value"),
       ptxURL1)
+    val dsloadFunction = DSCUDAFunction(
+      "load",
+      Array("value"), Seq(),
+      ptxURL1)
 
     val dsreduceFunction = DSCUDAFunction(
       "suml",
@@ -68,9 +77,9 @@ object perfDebug {
       Some(dimensions), outputSize=Some(1))
 
     val data = spark.range(1, n+1, 1, part).cache().cacheGpu()
-    // val data = dataRDD.toDS().cache()
     data.count()
-    data.reduceExtFunc(_ + _, dsreduceFunction)
+    // Load the data to GPU
+    data.reduceExtFunc((x1, x2) => x2 , dsloadFunction)
 
     val now1 = System.nanoTime
     val mapDS = data.mapExtFunc(2 * _, dsmapFunction).cacheGpu()

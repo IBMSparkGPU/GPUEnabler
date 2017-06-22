@@ -728,4 +728,16 @@ BB8_2:
 	ret;
 }
 
+	// .globl	load
+.visible .entry load(
+	.param .u32 load_param_0,
+	.param .u64 load_param_1
+)
+{
+
+
+
+	ret;
+}
+
 
