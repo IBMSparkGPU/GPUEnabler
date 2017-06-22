@@ -35,10 +35,8 @@ import org.apache.spark.{SparkEnv, SparkException}
  
 private[gpuenabler] object CUDAManagerCachedModule {
   private val cachedModules = new ConcurrentHashMap[(String, Int), CUmodule].asScala
-  private val cachedContext = new ConcurrentHashMap[(String, Int), CUcontext].asScala
 
   def getInstance : collection.concurrent.Map[(String, Int), CUmodule] = { cachedModules }
-  def getContext : collection.concurrent.Map[(String, Int), CUcontext] = { cachedContext }
 }
  
 private class CUDAManager {
@@ -52,7 +50,6 @@ private class CUDAManager {
     isGPUEnabled = true
     JCuda.cudaDeviceReset()
     CUDAManagerCachedModule.getInstance.clear
-    CUDAManagerCachedModule.getContext.clear
   } catch {
     case _: Throwable =>
       CUDAManager.logger.info("Could not initialize CUDA, because native jCuda libraries were " +
@@ -66,7 +63,7 @@ private class CUDAManager {
     count(0)
   }
 
-  def getModule(fname : String) : CUmodule = synchronized {
+  def getModule(fname : String) : CUmodule = {
     val ptxURL = getClass.getResource(fname)
     val clm = cachedLoadModule(Left(ptxURL));
     clm
@@ -87,35 +84,7 @@ private class CUDAManager {
 
     val devIx = new Array[Int](1)
     JCuda.cudaGetDevice(devIx)
- 
     synchronized {
-      // Create Context one per device & ptx file. Every thread created later, should set this context
-      // before any CUDA related operation.
-      val context:CUcontext = CUDAManagerCachedModule.getContext.getOrElseUpdate((key,devIx(0)), {
-        //  val executorId = SparkEnv.get.executorId match {
-        //    case "driver" => 0
-        //    case _ => SparkEnv.get.executorId.toInt
-        //  }
-          val device: CUdevice = new CUdevice
-          // Make sure thread from an executor gets attached to the same GPU.
-          // cuDeviceGet(device, executorId % gpuCount)
-          cuDeviceGet(device, devIx(0))
-          val context: CUcontext = new CUcontext
-  
-          cuCtxCreate(context, 0, device)
-          cuCtxSetCurrent(context)
-          JCuda.cudaDeviceSynchronize()
-          context
-      })
-
-      // Make sure whether the current context is already set for this thread
-      val prevcontext: CUcontext = new CUcontext
-      cuCtxGetCurrent(prevcontext)
-      if (prevcontext != context){
-        cuCtxSetCurrent(context)
-        JCuda.cudaDeviceSynchronize()
-      }
-
       // Since multiple modules cannot be loaded into one context in runtime API,
       //   we use singleton cache http://stackoverflow.com/questions/32502375/
       //   loading-multiple-modules-in-jcuda-is-not-working
