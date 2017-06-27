@@ -25,6 +25,7 @@ import org.apache.spark.sql.gpuenabler.CUDAUtils._Logging
 import org.apache.spark.scheduler.{SparkListener, SparkListenerJobEnd, SparkListenerJobStart}
 import scala.collection.JavaConverters._
 import scala.collection.mutable
+import org.apache.spark.scheduler.{SparkListener, SparkListenerJobEnd, SparkListenerJobStart}
 
 private[gpuenabler] case class RegisterGPUMemoryManager(id : String, slaveEndPointerRef: _RpcEndpointRef)
 private[gpuenabler] case class UncacheGPU(id : Int)
@@ -34,6 +35,7 @@ private[gpuenabler] case class CacheGPUDS(lp : String, flag: Boolean = false)
 private[gpuenabler] case class UncacheGPUDSAuto(lp : String)
 private[gpuenabler] case class CacheGPUDSAuto(lp : String)
 
+<<<<<<< c227e5711611232ff060795e24e5696f195b7448
 private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv)
   extends _ThreadSafeRpcEndpoint with _Logging{
 
@@ -54,6 +56,27 @@ private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv)
       }
     })
   }
+=======
+private[gpuenabler] case class CacheGPUDS(lp : String)
+private[gpuenabler] case class UncacheGPUDSAuto(lp : String)
+
+private[gpuenabler] case class CacheGPUDSAuto(lp : String)
+
+private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) extends _ThreadSafeRpcEndpoint {
+
+  val GPUMemoryManagerSlaves = new mutable.HashMap[String, _RpcEndpointRef]()
+  val cachedLP = scala.collection.mutable.ListBuffer.empty[String]
+  val cachedLPAuto = scala.collection.mutable.ListBuffer.empty[String]
+
+  SparkContext.getOrCreate().addSparkListener(new SparkListener() {
+    override def onJobStart(jobStart: SparkListenerJobStart) {
+      println(s"Spark Job Start: ID : ${jobStart.jobId} Time : ${jobStart.time} ")
+    }
+
+    override def onJobEnd(jobEnd: SparkListenerJobEnd) {
+      println(s"Spark Job End: ${jobEnd.time} ")
+    }
+  })
 
   def registerGPUMemoryManager(id : String, slaveEndpointRef: _RpcEndpointRef): Unit = {
     GPUMemoryManagerSlaves += id -> slaveEndpointRef
@@ -139,6 +162,12 @@ private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv)
       context.reply (true)
     case CacheGPUDS(lp : String, flag: Boolean) =>
       cacheGPU(lp, flag)
+      context.reply (true)
+    case UncacheGPUDSAuto(lp : String) =>
+      unCacheGPUAuto(lp)
+      context.reply (true)
+    case CacheGPUDSAuto(lp : String) =>
+      cacheGPUAuto(lp)
       context.reply (true)
     case UncacheGPUDSAuto(lp : String) =>
       unCacheGPUAuto(lp)

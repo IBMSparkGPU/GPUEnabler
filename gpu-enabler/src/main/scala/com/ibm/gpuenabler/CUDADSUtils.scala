@@ -72,6 +72,8 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       cached |= (if(DScache.contains(logPlans(1))) 2 else 0)
       cached |= (if(GPUSparkEnv.get.gpuMemoryManager.cachedGPUOnlyDS.contains(logPlans(0))) 4 else 0)
 
+      if(partNum == 0) println(s"Cached ${cached} : cf.function: ${cf.funcName}")
+
       // Generate the JCUDA program to be executed and obtain the iterator object
       val jcudaIterator = JCUDACodeGen.generate(inputSchema,
                      outputSchema,cf,constArgs, outputArraySizes)
@@ -260,6 +262,21 @@ object GPUOperators extends Strategy {
   }
 }
 
+object GPUOptimize extends Rule[LogicalPlan] {
+  def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
+    case thisPlan @ 
+      MAPGPU(cf,_,_,child,_,_,_) => 
+        println(s"Optimize : Enable child caching :: ${cf.funcName}")
+        val logPlan = child match {
+          case SerializeFromObject(_, lp) => lp
+          case _ => child
+        }
+        
+        GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlavesAuto(md5HashObj(logPlan))
+        thisPlan
+  }
+}
+
 /**
   * gpuParameters: This case class is used to describe the GPU Parameters
   * such as dimensions and shared Memory size which is optional.
@@ -412,6 +429,7 @@ object CUDADSImplicits {
       ds
     }
 
+    ds.sparkSession.experimental.extraOptimizations = GPUOptimize :: Nil
     ds.sparkSession.experimental.extraStrategies = GPUOperators :: Nil
   }
 }
