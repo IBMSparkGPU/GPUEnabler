@@ -45,6 +45,7 @@ object perfDebug {
       Array("this"), Seq(),
       ptxURL)
 
+/*
     val dataRDD = sc.parallelize(1 to n.toInt, part).map(_.toLong).cache().cacheGpu()
     dataRDD.count()
     // Load the data to GPU
@@ -57,6 +58,7 @@ object perfDebug {
     println("RDD Elapsed time: %d ms".format(ms))
     
     println("RDD Output is " + output)
+*/
 
     val dsmapFunction = DSCUDAFunction(
       "multiplyBy2",
@@ -75,17 +77,64 @@ object perfDebug {
     val data = spark.range(1, n+1, 1, part).cache() 
     // Load the data to GPU and cache it
     data.loadGpu()
+    println(" ==== ")
 
     val now1 = System.nanoTime
     val mapDS = data.mapExtFunc(2 * _, dsmapFunction).cacheGpu()
-    output = mapDS.reduceExtFunc(_ + _, dsreduceFunction)
+    var output = mapDS.reduceExtFunc(_ + _, dsreduceFunction)
     val ms1 = (System.nanoTime - now1) / 1000000
     println("DS Elapsed time: %d ms".format(ms1))
     println("DS Output is " + output)
 
     mapDS.unCacheGpu()
-    data.unCacheGpu()
+    println("all cached DS Output is " + output)
 
+
+    val data1 = spark.range(1, n+1, 1, part).cache()
+    //data1.count()
+    data1.reduceExtFunc((x1, x2) => x2 , dsloadFunction)
+    println(" ==== ")
+
+    val now11 = System.nanoTime
+    val mapDS1 = data1.mapExtFunc(2 * _, dsmapFunction) 
+    output = mapDS1.reduceExtFunc(_ + _, dsreduceFunction)
+    val ms11 = (System.nanoTime - now11) / 1000000
+    println("No Cache DS Elapsed time: %d ms".format(ms11))
+     println("DS Output is " + output)
+
+
+    val data13 = spark.range(1, n+1, 1, part).cache()
+    data13.count()
+    println(" ==== ")
+
+    val now113 = System.nanoTime
+    val mapDS13 = data13.mapExtFunc(2 * _, dsmapFunction)
+    output = mapDS13.reduceExtFunc(_ + _, dsreduceFunction)
+    val ms113 = (System.nanoTime - now113) / 1000000
+    println("2 No Cache DS Elapsed time: %d ms".format(ms113))
+     println("DS Output is " + output)
+
+
+    val data111 = data1.cacheGpu()
+    data111.reduceExtFunc((x1, x2) => x2 , dsloadFunction)
+    println(" ==== ")
+
+    val now111 = System.nanoTime
+    val mapDS11 = data111.mapExtFunc(2 * _, dsmapFunction) 
+    output = mapDS11.reduceExtFunc(_ + _, dsreduceFunction)
+    val ms111 = (System.nanoTime - now111) / 1000000
+    println("Datapoint cached ; DS Elapsed time: %d ms".format(ms111))
+     println("DS Output is " + output)
+
+
+    println(">>>  ==== ")
+    val mapDS114 = spark.range(1, n+1, 1, part).cache().mapExtFunc(2 * _, dsmapFunction).cacheGpu()
+    println("count is " + mapDS114.count())
+    mapDS114.head(10).foreach(println)
+    println(">>>  ==== ")
+
+
+    println(" ==== ")
     val now3 = System.nanoTime
     data.map(2 * _).reduce(_ + _)
     val ms3 = (System.nanoTime - now3) / 1000000

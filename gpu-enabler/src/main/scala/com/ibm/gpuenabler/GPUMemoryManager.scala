@@ -18,11 +18,12 @@
 package com.ibm.gpuenabler
 
 import jcuda.driver.CUdeviceptr
-import org.apache.spark.SparkException
+import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.gpuenabler.CUDAUtils._
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.JavaConverters._
 import scala.collection.mutable
+import org.apache.spark.scheduler.{SparkListener, SparkListenerJobEnd, SparkListenerJobStart}
 
 private[gpuenabler] case class RegisterGPUMemoryManager(id : String, slaveEndPointerRef: _RpcEndpointRef)
 
@@ -33,16 +34,31 @@ private[gpuenabler] case class CacheGPU(id : Int)
 private[gpuenabler] case class UncacheGPUDS(lp : String)
 
 private[gpuenabler] case class CacheGPUDS(lp : String)
+private[gpuenabler] case class UncacheGPUDSAuto(lp : String)
+
+private[gpuenabler] case class CacheGPUDSAuto(lp : String)
 
 private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) extends _ThreadSafeRpcEndpoint {
 
   val GPUMemoryManagerSlaves = new mutable.HashMap[String, _RpcEndpointRef]()
   val cachedLP = scala.collection.mutable.ListBuffer.empty[String]
+  val cachedLPAuto = scala.collection.mutable.ListBuffer.empty[String]
+
+  SparkContext.getOrCreate().addSparkListener(new SparkListener() {
+    override def onJobStart(jobStart: SparkListenerJobStart) {
+      println(s"Spark Job Start: ID : ${jobStart.jobId} Time : ${jobStart.time} ")
+    }
+
+    override def onJobEnd(jobEnd: SparkListenerJobEnd) {
+      println(s"Spark Job End: ${jobEnd.time} ")
+    }
+  })
 
   def registerGPUMemoryManager(id : String, slaveEndpointRef: _RpcEndpointRef): Unit = {
     GPUMemoryManagerSlaves += id -> slaveEndpointRef
     // For new slave node, push the cached logical plan list.
     cachedLP.foreach(lp => tell(slaveEndpointRef, CacheGPUDS(lp)))
+    cachedLPAuto.foreach(lp => tell(slaveEndpointRef, CacheGPUDS(lp)))
   }
 
   def unCacheGPU(rddId : Int): Unit = {
@@ -57,17 +73,53 @@ private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) ex
     }
   }
 
+  def unCacheGPUAuto(lp : String): Unit = {
+    cachedLPAuto.find(_ == lp) match {
+      case Some(_) => cachedLPAuto -= lp
+        println("AUTO Free")
+        for (slaveRef <- GPUMemoryManagerSlaves.values) {
+          tell(slaveRef, UncacheGPUDS(lp))
+        }
+      case None => println("AUTO unCacheGPU: LogicalPlan is not found cached in Driver")
+    }
+  }
+
+  def cacheGPUAuto(lp : String): Unit = {
+    cachedLPAuto.find(_ == lp) match {
+      case Some(_) => println("AUTO cacheGPU: LogicalPlan is already cached in Driver")
+      case None =>
+        cachedLP.find(_ == lp) match {
+          case Some(_) => println(" cacheGPU: LogicalPlan is already cached in Driver")
+          case None => println("AUTO cacheGPU: LogicalPlan ") 
+            cachedLPAuto += lp
+            for (slaveRef <- GPUMemoryManagerSlaves.values){
+              tell(slaveRef, CacheGPUDS(lp))
+            }
+        }
+    }
+  }
+
   def unCacheGPU(lp : String): Unit = {
-    cachedLP -= lp
-    for (slaveRef <- GPUMemoryManagerSlaves.values) {
-      tell(slaveRef, UncacheGPUDS(lp))
+    cachedLP.find(_ == lp) match {
+      case Some(_) => cachedLP -= lp
+        for (slaveRef <- GPUMemoryManagerSlaves.values) {
+          tell(slaveRef, UncacheGPUDS(lp))
+        }
+      case None => println("unCacheGPU: LogicalPlan is not found cached in Driver")
     }
   }
 
   def cacheGPU(lp : String): Unit = {
-    cachedLP += lp
-    for (slaveRef <- GPUMemoryManagerSlaves.values){
-      tell(slaveRef, CacheGPUDS(lp))
+    cachedLPAuto.find(_ == lp) match {
+      case Some(_) => cachedLPAuto -= lp
+      case None => 
+    }
+    cachedLP.find(_ == lp) match {
+      case Some(_) => println("cacheGPU: LogicalPlan is already cached in Driver")
+      case None => cachedLP += lp
+        for (slaveRef <- GPUMemoryManagerSlaves.values){
+          tell(slaveRef, CacheGPUDS(lp))
+        }
     }
   }
   
@@ -86,6 +138,12 @@ private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv) ex
       context.reply (true)
     case CacheGPUDS(lp : String) =>
       cacheGPU(lp)
+      context.reply (true)
+    case UncacheGPUDSAuto(lp : String) =>
+      unCacheGPUAuto(lp)
+      context.reply (true)
+    case CacheGPUDSAuto(lp : String) =>
+      cacheGPUAuto(lp)
       context.reply (true)
   }
 
@@ -172,6 +230,14 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
     }
   }
 
+  def unCacheGPUSlavesAuto(lp : String): Unit = {
+    tell(com.ibm.gpuenabler.UncacheGPUDSAuto(lp))
+  }
+
+  def cacheGPUSlavesAuto(lp : String): Unit = {
+    tell(com.ibm.gpuenabler.CacheGPUDSAuto(lp))
+  }
+
   def unCacheGPUSlaves(lp : String): Unit = {
     tell(com.ibm.gpuenabler.UncacheGPUDS(lp))
   }
@@ -229,4 +295,5 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
 private[gpuenabler] object GPUMemoryManager {
   val DRIVER_ENDPOINT_NAME = "GPUMemoryManager"
 }
+
 

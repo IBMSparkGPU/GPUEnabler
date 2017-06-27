@@ -31,6 +31,8 @@ import scala.collection.mutable
 import org.apache.spark.sql.gpuenabler.CUDAUtils._
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import java.util.concurrent.ConcurrentHashMap
+import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.scheduler.{SparkListener, SparkListenerJobStart, SparkListenerJobEnd}
 
 case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
                             outputArraySizes: Array[Int],
@@ -67,6 +69,8 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       val DScache = GPUSparkEnv.get.gpuMemoryManager.cachedGPUDS
       var cached = if (DScache.contains(logPlans(0))) 1 else 0
       cached |= (if(DScache.contains(logPlans(1))) 2 else 0)
+
+      if(partNum == 0) println(s"Cached ${cached} : cf.function: ${cf.funcName}")
 
       // Generate the JCUDA program to be executed and obtain the iterator object
       val jcudaIterator = JCUDACodeGen.generate(inputSchema,
@@ -231,8 +235,10 @@ object GPUOperators extends Strategy {
       // cached it done with logical plan UID.
       val logPlans = new Array[String](2)
       val modChildPlan = child match {
-        case DeserializeToObject(_, _, lp) => lp
-	      case _ => child
+        case DeserializeToObject(_, _, lp) =>
+          GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlavesAuto(md5HashObj(lp))
+          lp
+	case _ => child
       }
       logPlans(0) = md5HashObj(plan)
       logPlans(1) = md5HashObj(modChildPlan)
@@ -252,6 +258,21 @@ object GPUOperators extends Strategy {
       MAPGPUExec(cf, null, null, planLater(child),
         inputEncoder, inputEncoder, outputObjAttr, logPlans) :: Nil
     case _ => Nil
+  }
+}
+
+object GPUOptimize extends Rule[LogicalPlan] {
+  def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
+    case thisPlan @ 
+      MAPGPU(cf,_,_,child,_,_,_) => 
+        println(s"Optimize : Enable child caching :: ${cf.funcName}")
+        val logPlan = child match {
+          case SerializeFromObject(_, lp) => lp
+          case _ => child
+        }
+        
+        GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlavesAuto(md5HashObj(logPlan))
+        thisPlan
   }
 }
 
@@ -336,8 +357,21 @@ object CUDADSImplicits {
         MAPGPU[T, T](cf, args, outputArraySizes,
           getLogicalPlan(ds)))
 
-      ds1.reduce(func)
+      val result = ds1.reduce(func)
 
+      ds1.queryExecution.optimizedPlan transformDown {
+        case thisPlan @
+          MAPGPU(_, _, _, child, _, _, _) =>
+            val logPlan = child match {
+              case SerializeFromObject(_, lp) => lp
+              case _ => child
+            }
+  
+            println("Cleanup")
+            GPUSparkEnv.get.gpuMemoryManager.unCacheGPUSlavesAuto(md5HashObj(logPlan))
+            thisPlan
+      }
+      result
     }
 
     /**
@@ -395,6 +429,7 @@ object CUDADSImplicits {
       ds
     }
 
+    ds.sparkSession.experimental.extraOptimizations = GPUOptimize :: Nil
     ds.sparkSession.experimental.extraStrategies = GPUOperators :: Nil
   }
 }

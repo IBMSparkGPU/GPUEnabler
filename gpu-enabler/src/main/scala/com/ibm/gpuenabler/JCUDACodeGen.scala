@@ -300,16 +300,10 @@ object JCUDACodeGen extends _Logging {
     // Copy Data from device to host memory
     codeStmt += "memcpyD2H" -> {
       // TODO : Evaluate for performance;
-      if(is(GPUOUTPUT))
-        s"cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream);\n"
-      else if (is(GPUINPUT) && is(RDDOUTPUT))
-        // If the child plan is cached & this column is part of the output; there is a least chance
-        // that this data is modified by this logical plan. So for performance we skip on such scenarios.
-        s"""
-           | if (!((cached & 2) > 0))
-           |  cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream);\n
-         """.stripMargin
-      else ""
+      if(is(GPUOUTPUT)  || (is(GPUINPUT) && is(RDDOUTPUT)))
+        s"""| cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream); \n""".stripMargin
+      else
+        ""
     }
 
     // Device memory will be freed if not cached.
