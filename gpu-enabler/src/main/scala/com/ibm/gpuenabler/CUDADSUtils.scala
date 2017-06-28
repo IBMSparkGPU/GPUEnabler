@@ -262,21 +262,6 @@ object GPUOperators extends Strategy {
   }
 }
 
-object GPUOptimize extends Rule[LogicalPlan] {
-  def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
-    case thisPlan @ 
-      MAPGPU(cf,_,_,child,_,_,_) => 
-        println(s"Optimize : Enable child caching :: ${cf.funcName}")
-        val logPlan = child match {
-          case SerializeFromObject(_, lp) => lp
-          case _ => child
-        }
-        
-        GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlavesAuto(md5HashObj(logPlan))
-        thisPlan
-  }
-}
-
 /**
   * gpuParameters: This case class is used to describe the GPU Parameters
   * such as dimensions and shared Memory size which is optional.
@@ -429,7 +414,6 @@ object CUDADSImplicits {
       ds
     }
 
-    ds.sparkSession.experimental.extraOptimizations = GPUOptimize :: Nil
     ds.sparkSession.experimental.extraStrategies = GPUOperators :: Nil
   }
 }
