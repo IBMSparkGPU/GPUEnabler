@@ -66,9 +66,11 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       // cached: 1 -> this logical plan is cached;
       // cached: 2 -> child logical plan is cached;
       // cached: 0 -> NoCache;
+      // cached: 4 -> this logical plan is cached; data resides only in GPU ;
       val DScache = GPUSparkEnv.get.gpuMemoryManager.cachedGPUDS
       var cached = if (DScache.contains(logPlans(0))) 1 else 0
       cached |= (if(DScache.contains(logPlans(1))) 2 else 0)
+      cached |= (if(GPUSparkEnv.get.gpuMemoryManager.cachedGPUOnlyDS.contains(logPlans(0))) 4 else 0)
 
       if(partNum == 0) println(s"Cached ${cached} : cf.function: ${cf.funcName}")
 
@@ -80,7 +82,7 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       // Get hold of hashmap for this Plan to store the GPU pointers from output parameters
       // cached: 1 -> this logical plan is cached; 2 -> child logical plan is cached
       val curPlanPtrs: java.util.Map[String, CUdeviceptr] = if ((cached & 1) > 0) {
-          val partPtr = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(0), null) //.asJava
+          val partPtr = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(0), null)
           if (partPtr != null) {
             partPtr.getOrElseUpdate(partNum.toLong, {
               new ConcurrentHashMap[String, CUdeviceptr].asScala
@@ -93,7 +95,7 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       }
 
       val childPlanPtrs: java.util.Map[String, CUdeviceptr] =  if ((cached & 2) > 0) {
-        val partPtr = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(1), null) //.asJava
+        val partPtr = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(1), null)
         if (partPtr != null) {
           partPtr.getOrElseUpdate(partNum.toLong, {
             new ConcurrentHashMap[String, CUdeviceptr].asScala
@@ -236,10 +238,14 @@ object GPUOperators extends Strategy {
       val logPlans = new Array[String](2)
       val modChildPlan = child match {
         case DeserializeToObject(_, _, lp) =>
-          GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlavesAuto(md5HashObj(lp))
           lp
 	case _ => child
       }
+      if (GPUSparkEnv.isAutoCacheEnabled) {
+        println(s"Optimize : Enable child caching :: ${cf.funcName}")
+        GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlavesAuto(md5HashObj(modChildPlan))
+      }
+
       logPlans(0) = md5HashObj(plan)
       logPlans(1) = md5HashObj(modChildPlan)
 
@@ -258,21 +264,6 @@ object GPUOperators extends Strategy {
       MAPGPUExec(cf, null, null, planLater(child),
         inputEncoder, inputEncoder, outputObjAttr, logPlans) :: Nil
     case _ => Nil
-  }
-}
-
-object GPUOptimize extends Rule[LogicalPlan] {
-  def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
-    case thisPlan @ 
-      MAPGPU(cf,_,_,child,_,_,_) => 
-        println(s"Optimize : Enable child caching :: ${cf.funcName}")
-        val logPlan = child match {
-          case SerializeFromObject(_, lp) => lp
-          case _ => child
-        }
-        
-        GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlavesAuto(md5HashObj(logPlan))
-        thisPlan
   }
 }
 
@@ -357,21 +348,7 @@ object CUDADSImplicits {
         MAPGPU[T, T](cf, args, outputArraySizes,
           getLogicalPlan(ds)))
 
-      val result = ds1.reduce(func)
-
-      ds1.queryExecution.optimizedPlan transformDown {
-        case thisPlan @
-          MAPGPU(_, _, _, child, _, _, _) =>
-            val logPlan = child match {
-              case SerializeFromObject(_, lp) => lp
-              case _ => child
-            }
-  
-            println("Cleanup")
-            GPUSparkEnv.get.gpuMemoryManager.unCacheGPUSlavesAuto(md5HashObj(logPlan))
-            thisPlan
-      }
-      result
+      ds1.reduce(func)
     }
 
     /**
@@ -406,12 +383,12 @@ object CUDADSImplicits {
       * be achieved as data movement between CPU memory and GPU 
       * memory is considered costly.
       */
-    def cacheGpu(): Dataset[T] = {
+    def cacheGpu(flag: Boolean = false): Dataset[T] = {
       val logPlan = ds.queryExecution.optimizedPlan match {
         case SerializeFromObject(_, lp) => lp
 	      case _ => ds.queryExecution.optimizedPlan
       }
-      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(md5HashObj(logPlan))
+      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(md5HashObj(logPlan), flag)
       ds
     }
 
@@ -429,7 +406,6 @@ object CUDADSImplicits {
       ds
     }
 
-    ds.sparkSession.experimental.extraOptimizations = GPUOptimize :: Nil
     ds.sparkSession.experimental.extraStrategies = GPUOperators :: Nil
   }
 }

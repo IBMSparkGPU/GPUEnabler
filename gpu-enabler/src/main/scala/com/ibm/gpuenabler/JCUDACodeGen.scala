@@ -297,11 +297,14 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
-    // Copy Data from device to host memory
+    // Copy Data from device to host memory; only for non-GPU only cached memory
     codeStmt += "memcpyD2H" -> {
       // TODO : Evaluate for performance;
       if(is(GPUOUTPUT)  || (is(GPUINPUT) && is(RDDOUTPUT)))
-        s"""| cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream); \n""".stripMargin
+        s"""
+           | if (!((cached & 4) > 0))
+           | cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream); \n
+         """.stripMargin
       else
         ""
     }
@@ -574,6 +577,8 @@ object JCUDACodeGen extends _Logging {
       createAllInputVariables(inputSchema, ctx)
 
     val debugMode = SparkEnv.get.conf.getInt("spark.gpuenabler.DebugMode", 0)
+    if(debugMode == 2)
+      println("Compile Existing File - DebugMode")
 
     val codeBody =
       s"""
