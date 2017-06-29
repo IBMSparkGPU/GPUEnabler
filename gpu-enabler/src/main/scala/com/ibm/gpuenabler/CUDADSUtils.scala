@@ -72,8 +72,6 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       cached |= (if(DScache.contains(logPlans(1))) 2 else 0)
       cached |= (if(GPUSparkEnv.get.gpuMemoryManager.cachedGPUOnlyDS.contains(logPlans(0))) 4 else 0)
 
-      if(partNum == 0) println(s"Cached ${cached} : cf.function: ${cf.funcName}")
-
       // Generate the JCUDA program to be executed and obtain the iterator object
       val jcudaIterator = JCUDACodeGen.generate(inputSchema,
                      outputSchema,cf,constArgs, outputArraySizes)
@@ -241,13 +239,14 @@ object GPUOperators extends Strategy {
           lp
 	case _ => child
       }
-      if (GPUSparkEnv.isAutoCacheEnabled) {
-        println(s"Optimize : Enable child caching :: ${cf.funcName}")
-        GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlavesAuto(md5HashObj(modChildPlan))
-      }
 
       logPlans(0) = md5HashObj(plan)
       logPlans(1) = md5HashObj(modChildPlan)
+
+      if (GPUSparkEnv.isAutoCacheEnabled) {
+        logInfo(s"Optimize : Enable caching for child of logicalplan(${cf.funcName}) : ${logPlans(1)}")
+        GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlavesAuto(logPlans(1))
+      }
 
       MAPGPUExec(cf, args, outputArraySizes, planLater(child),
         inputEncoder, outputEncoder, outputObjAttr, logPlans) :: Nil
@@ -383,12 +382,12 @@ object CUDADSImplicits {
       * be achieved as data movement between CPU memory and GPU 
       * memory is considered costly.
       */
-    def cacheGpu(flag: Boolean = false): Dataset[T] = {
+    def cacheGpu(onlyGPU: Boolean = false): Dataset[T] = {
       val logPlan = ds.queryExecution.optimizedPlan match {
         case SerializeFromObject(_, lp) => lp
 	      case _ => ds.queryExecution.optimizedPlan
       }
-      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(md5HashObj(logPlan), flag)
+      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(md5HashObj(logPlan), onlyGPU)
       ds
     }
 

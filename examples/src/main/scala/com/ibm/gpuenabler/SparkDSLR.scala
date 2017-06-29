@@ -94,7 +94,7 @@ object SparkDSLR {
         Some(dimensions), outputSize=Some(1)))
 
     val pointsCached = spark.range(1, N+1, 1, numSlices).map(i => generateData(i, N, D, R)).cache()
-    val pointsColumnCached = pointsCached
+    val pointsColumnCached = pointsCached.cacheGpu(true)
 
     // load data points into GPU
     pointsColumnCached.loadGpu()
@@ -104,7 +104,6 @@ object SparkDSLR {
     var wCPU = Array.fill(D){2 * rand.nextDouble - 1}
     var wGPU = Array.tabulate(D)(i => wCPU(i))
     val wbc1 = spark.sparkContext.broadcast(wGPU)
-
 
     println("============ GPU =======================")
     print("Initial Weights :: ")
@@ -121,7 +120,7 @@ object SparkDSLR {
         mapFunction.value, 
         Array(wGPUbcast.value, D), 
         outputArraySizes = Array(D)
-      ).cacheGpu()
+      ).cacheGpu(true)
 
       val gradient = mapDS.reduceExtFunc((x: Array[Double], y: Array[Double]) => daddvv(x, y),
         reduceFunction.value, 
