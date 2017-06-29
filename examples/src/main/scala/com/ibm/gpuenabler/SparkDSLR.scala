@@ -94,26 +94,17 @@ object SparkDSLR {
         Some(dimensions), outputSize=Some(1)))
 
     val pointsCached = spark.range(1, N+1, 1, numSlices).map(i => generateData(i, N, D, R)).cache()
-    val pointsColumnCached = pointsCached.cacheGpu()
+    val pointsColumnCached = pointsCached
+
+    // load data points into GPU
+    pointsColumnCached.loadGpu()
+    println("Data Generation Done !!")
 
     // Initialize w to a random value
     var wCPU = Array.fill(D){2 * rand.nextDouble - 1}
     var wGPU = Array.tabulate(D)(i => wCPU(i))
     val wbc1 = spark.sparkContext.broadcast(wGPU)
 
-    // Run first iteration so that the data is moved to GPU and get cached in GPU.
-    val m = pointsColumnCached.mapExtFunc((p: DataPoint) =>
-        dmulvs(p.x,  (1 / (1 + exp(-p.y * (ddotvv(wGPU, p.x)))) - 1) * p.y),
-        mapFunction.value,
-        Array(wbc1.value, D),
-        outputArraySizes = Array(D)
-      ).cacheGpu()
-    m.reduceExtFunc((x: Array[Double], y: Array[Double]) => daddvv(x, y),
-        reduceFunction.value,
-        Array(D),
-        outputArraySizes = Array(D))
-    m.unCacheGpu()
-    println("Data Generation Done !!")
 
     println("============ GPU =======================")
     print("Initial Weights :: ")

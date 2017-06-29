@@ -45,11 +45,6 @@ object perfDebug {
       Array("this"), Seq(),
       ptxURL)
 
-    val loadFunction = new CUDAFunction(
-      "load",
-      Array("this"), Seq(),
-      ptxURL)
-
     val dataRDD = sc.parallelize(1 to n.toInt, part).map(_.toLong).cache().cacheGpu()
     dataRDD.count()
     // Load the data to GPU
@@ -67,10 +62,6 @@ object perfDebug {
       "multiplyBy2",
       Array("value"),
       Array("value"),
-      ptxURL1)
-    val dsloadFunction = DSCUDAFunction(
-      "load",
-      Array("value"), Seq(),
       ptxURL1)
 
     val dsreduceFunction = DSCUDAFunction(
