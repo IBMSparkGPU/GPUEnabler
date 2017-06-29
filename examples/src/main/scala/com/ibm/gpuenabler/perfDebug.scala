@@ -88,10 +88,9 @@ object perfDebug {
     val rd = spark.range(1, n+1, 1, part).cache()
     rd.count()
 
-    val data = rd.cacheGpu(true)
+    val data = rd.cacheGpu()
     // Load the data to GPU
     data.loadGpu()
-    println(" ==== ")
 
     timeit("DS: All cached", {
       val mapDS = data.mapExtFunc(2 * _, dsmapFunction).cacheGpu()
