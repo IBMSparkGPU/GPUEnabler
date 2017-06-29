@@ -1118,7 +1118,6 @@ test("Run map + map + map + reduce on datasets - Cached multiple partitions", GP
       info("No CUDA devices, so skipping the test.")
     }
   }
-  
 }
 
 
