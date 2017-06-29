@@ -1033,6 +1033,45 @@ test("Run map + map + map + reduce on datasets - Cached multiple partitions", GP
     }
   }
 
+  test("Run map + map + map + reduce on dataset - Cached multiple partitions - GPU Only", GPUTest) {
+    val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
+    import spark.implicits._
+    val manager =  GPUSparkEnv.get.cudaManager
+    if (manager != null) {
+      val mapFunction = DSCUDAFunction(
+        "multiplyBy2",
+        Array("value"),
+        Array("value"),
+        ptxURL)
+
+      val dimensions = (size: Long, stage: Int) => stage match {
+        case 0 => (64, 256)
+        case 1 => (1, 1)
+      }
+      val reduceFunction = DSCUDAFunction(
+        "suml",
+        Array("value"),
+        Array("value"),
+        ptxURL,
+        Some((size: Long) => 2),
+        Some(dimensions), outputSize=Some(1))
+
+      val n = 100
+      try {
+        val output = spark.range(1, n+1, 1, 16)
+          .mapExtFunc(_ * 2, mapFunction).cacheGpu(true)
+          .mapExtFunc(_ * 2, mapFunction).cacheGpu(true)
+          .mapExtFunc(_ * 2, mapFunction).cacheGpu(true)
+          .reduceExtFunc(_ + _, reduceFunction)
+        assert(output == 4 * n * (n + 1))
+      } finally {
+        spark.stop
+      }
+    } else {
+      info("No CUDA devices, so skipping the test.")
+    }
+  }
+
 }
 
 
