@@ -88,7 +88,7 @@ object perfDebug {
     val rd = spark.range(1, n+1, 1, part).cache()
     rd.count()
 
-    val data = rd.cacheGpu()
+    val data = rd.cacheGpu(true)
     // Load the data to GPU
     data.loadGpu()
 

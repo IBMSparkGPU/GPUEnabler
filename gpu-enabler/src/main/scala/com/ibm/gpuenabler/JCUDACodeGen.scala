@@ -66,6 +66,7 @@ object JCUDACodeGen extends _Logging {
     var isArray = false
     var arrayType: DataType = _
     var size = ""
+    var optsize = ""
     var hostVariableName = ""
     var deviceVariableName = ""
 
