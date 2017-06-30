@@ -238,7 +238,7 @@
             <junitxml>.</junitxml>
             <forkMode>once</forkMode>
             <filereports>WDF TestSuite.txt</filereports>
-            <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms42g -Xmx45G -Xmn40G</argLine>
+            <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms52g -Xmx55G -Xmn50G</argLine>
           </configuration>
           <executions>
             <execution>

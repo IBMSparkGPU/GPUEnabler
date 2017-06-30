@@ -167,7 +167,7 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 
         override def next: InternalRow =
           InternalRow(outEnc
-             .fromRow(jcudaIterator.next().copy()))
+             .fromRow(jcudaIterator.next()))
       }
     }
   }

@@ -66,6 +66,7 @@ object JCUDACodeGen extends _Logging {
     var isArray = false
     var arrayType: DataType = _
     var size = ""
+    var optsize = ""
     var hostVariableName = ""
     var deviceVariableName = ""
 
@@ -82,24 +83,31 @@ object JCUDACodeGen extends _Logging {
     }
 
     // Create variable's size based on column data type
-    if(is(CONST))
+    if(is(CONST)) {
       size = s"Math.abs($length) * Sizeof.${javaType.toUpperCase()}"
-    else {
+      optsize = size
+    } else {
       dataType match {
         case ArrayType(d, _) =>
           isArray = true
           arrayType = d
           boxType = ctx.boxedType(d)
           javaType = ctx.javaType(d)
-          if (outputSize != 0 && is(GPUOUTPUT))
+          if (outputSize != 0 && is(GPUOUTPUT)) {
             size = s"$outputSize * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
-          else
+            optsize = size
+          } else {
             size = s"numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
+            optsize = s"Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
+          }
         case _ => 
-          if (outputSize != 0 && is(GPUOUTPUT))
+          if (outputSize != 0 && is(GPUOUTPUT)) {
             size = s"$outputSize * Sizeof.${javaType.toUpperCase()}"
-          else
+            optsize = size
+          } else {
             size = s"numElements * Sizeof.${javaType.toUpperCase()}"
+            optsize = s"Sizeof.${javaType.toUpperCase()}"
+          }
       }
     }
 
@@ -154,9 +162,14 @@ object JCUDACodeGen extends _Logging {
                else ""
             }
             |if ( !${is(GPUINPUT)} || !((cached & 2) > 0) ||
-            |   !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}") || ${is(RDDOUTPUT)} ) {
-            | cuMemAllocHost(pinMemPtr_$colName, $size);
-            | $hostVariableName = pinMemPtr_$colName.getByteBuffer(0,$size).order(ByteOrder.LITTLE_ENDIAN);
+            |   !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}") || ${is(RDDOUTPUT)} ) { 
+            | if (!((cached & 4) > 0) || ${is(GPUINPUT)}) {
+            |   cuMemAllocHost(pinMemPtr_$colName, $size);
+            |   $hostVariableName = pinMemPtr_$colName.getByteBuffer(0,$size).order(ByteOrder.LITTLE_ENDIAN);
+            | } else {
+            |   cuMemAllocHost(pinMemPtr_$colName, $optsize);
+            |   $hostVariableName = pinMemPtr_$colName.getByteBuffer(0, $optsize).order(ByteOrder.LITTLE_ENDIAN);
+            | }
             |}
           """.stripMargin
 
@@ -642,7 +655,16 @@ object JCUDACodeGen extends _Logging {
         |    private int stages;
         |
         |    ${getStmt(variables,List("declareHost","declareDevice"),"\n")}
-        |
+        |    
+        |    protected void finalize() throws Throwable
+        |    {
+        |       super.finalize();
+        |       if(freeMemory) {
+        |         freePinnedMemory();
+        |         freeMemory=false;
+        |       }
+        |    }    
+        |  
         |    public JCUDAIteratorImpl() {
         |        result = new UnsafeRow(${getAttributes(outputSchema).length});
         |        this.holder = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(result, 32);
