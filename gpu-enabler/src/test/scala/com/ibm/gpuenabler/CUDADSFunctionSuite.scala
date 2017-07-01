@@ -531,9 +531,9 @@ class CUDADSFunctionSuite extends FunSuite {
 
       val n: Long = 100000000L
       try {
-        val data = spark.range(1, n+1, 1, 16).cache()
+        val data = spark.range(1, n+1, 1, 16).cache()//.cacheGpu(true)
         data.count()
-        val mapDS = data.mapExtFunc(2 * _, mapFunction).cacheGpu(true)
+        val mapDS = data.mapExtFunc(2 * _, mapFunction).cacheGpu()
         val output: Long = mapDS.reduceExtFunc(_ + _, reduceFunction)
         mapDS.unCacheGpu()
         assert(output == n * (n + 1))

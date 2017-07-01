@@ -159,6 +159,8 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       // Triggers execution
       jcudaIterator.hasNext()
 
+      list.clear()
+
       val outEnc = outexprEnc
         .resolveAndBind(getAttributes(outputEncoder.schema))
 
