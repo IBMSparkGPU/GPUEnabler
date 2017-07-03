@@ -349,7 +349,7 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
-  test("Run map on rdds - single partition", GPUTest) {
+  test("Run map on datasets - single partition", GPUTest) {
     val spark = SparkSession.builder().master("local[1]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -375,7 +375,7 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
-  test("Run reduce on rdds - single partition", GPUTest) {
+  test("Run reduce on datasets - single partition", GPUTest) {
     val spark = SparkSession.builder().master("local[1]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -406,7 +406,7 @@ class CUDADSFunctionSuite extends FunSuite {
   }
 
 
-  test("Run map + reduce on rdds - single partition", GPUTest) {
+  test("Run map + reduce on datasets - single partition", GPUTest) {
     val spark = SparkSession.builder().master("local[1]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -444,7 +444,7 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
-  test("Run map on rdds with 100,000 elements - multiple partition", GPUTest) {
+  test("Run map on datasets with 100,000 elements - multiple partition", GPUTest) {
     val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -469,7 +469,7 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
-  test("Run map + reduce on rdds - multiple partitions", GPUTest) {
+  test("Run map + reduce on datasets - multiple partitions", GPUTest) {
     val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -506,7 +506,7 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
- test("Run map + reduce on rdds with 100,000,000 elements - multiple partitions", GPUTest) {
+ test("Run map + reduce on datasets with 100,000,000 elements - multiple partitions", GPUTest) {
     val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -545,7 +545,7 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
-  test("Run map + map + reduce on rdds - multiple partitions", GPUTest) {
+  test("Run map + map + reduce on datasets - multiple partitions", GPUTest) {
     val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -583,7 +583,7 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
-  test("Run map + map + map + collect on rdds", GPUTest) {
+  test("Run map + map + map + collect on datasets", GPUTest) {
     val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -611,7 +611,7 @@ class CUDADSFunctionSuite extends FunSuite {
   }
 
 
-  test("Run map + map + map + reduce on rdds - multiple partitions", GPUTest) {
+  test("Run map + map + map + reduce on datasets - multiple partitions", GPUTest) {
     val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -650,7 +650,7 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
   
-  test("Run map on rdd with a single primitive array column", GPUTest) {
+  test("Run map on dataset with a single primitive array column", GPUTest) {
     val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -676,7 +676,7 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
-  test("Run map with free variables on rdd with a single primitive array column", GPUTest) {
+  test("Run map with free variables on dataset with a single primitive array column", GPUTest) {
     val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -707,7 +707,7 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
-  test("Run reduce on rdd with a single primitive array column", GPUTest) {
+  test("Run reduce on dataset with a single primitive array column", GPUTest) {
     val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
@@ -950,7 +950,51 @@ class CUDADSFunctionSuite extends FunSuite {
     }
   }
 
-test("Run map + map + map + reduce on rdds - Cached multiple partitions", GPUTest) {
+  test("CUDA GPU loadGpu Testcase", GPUTest) {
+    val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
+    import spark.implicits._
+    val manager =  GPUSparkEnv.get.cudaManager
+    if (manager!= null) {
+      val mapFunction = DSCUDAFunction(
+        "multiplyBy2",
+        Seq("value"),
+        Seq("value"),
+        ptxURL)
+
+      val n = 10
+      val baseDS = spark.range(1, n+1, 1, 1)
+      var r1 = Array[Long](1)
+      var r2 = Array[Long](1)
+
+      try {
+        for( i <- 1 to 2) {
+          // With cache it should copy memory from cpu to GPU everytime.
+          val n1 = baseDS.mapExtFunc(_ * 2, mapFunction).cacheGpu()
+
+          // With cache it should copy from CPU to GPU only one time.
+          baseDS.loadGpu()
+          r1 = baseDS.mapExtFunc(_ * 2, mapFunction).collect()
+          r2 = baseDS.mapExtFunc(_ * 2, mapFunction).collect()
+          assert(r1.sameElements(r2))
+
+          // UncacheGPU should clear the GPU cache.
+          n1.unCacheGpu()
+          baseDS.unCacheGpu().unCacheGpu()
+          r1 = n1.collect()
+          r2 = baseDS.mapExtFunc(_ * 2, mapFunction).collect()
+          assert(r1.sameElements(r2))
+
+          baseDS.cache()
+        }
+      } finally {
+        spark.stop
+      }
+    } else {
+      info("No CUDA devices, so skipping the test.")
+    }
+  }
+
+test("Run map + map + map + reduce on datasets - Cached multiple partitions", GPUTest) {
     val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager

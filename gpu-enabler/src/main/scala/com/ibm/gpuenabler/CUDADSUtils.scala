@@ -189,6 +189,29 @@ object MAPGPU
   }
 }
 
+
+object LOADGPU
+{
+  def apply[T: Encoder](child: LogicalPlan) : LogicalPlan = {
+    val deserialized = CatalystSerde.deserialize[T](child)
+    val mapped = LOADGPU(
+      deserialized,
+      implicitly[Encoder[T]],
+      CatalystSerde.generateObjAttr[T]
+    )
+
+    CatalystSerde.serialize[T](mapped)
+  }
+}
+
+case class LOADGPU[T: Encoder](child: LogicalPlan,
+                               inputEncoder: Encoder[T],
+                               outputObjAttr: Attribute)
+  extends ObjectConsumer with ObjectProducer {
+  override def otherCopyArgs : Seq[AnyRef] =
+    inputEncoder ::  Nil
+}
+
 case class MAPGPU[T: Encoder, U : Encoder](func: DSCUDAFunction,
 			   args : Array[Any],
 			   outputArraySizes: Array[Int],
@@ -209,13 +232,25 @@ object GPUOperators extends Strategy {
       val logPlans = new Array[String](2)
       val modChildPlan = child match {
         case DeserializeToObject(_, _, lp) => lp
-	case _ => child
+	      case _ => child
       }
       logPlans(0) = md5HashObj(plan)
       logPlans(1) = md5HashObj(modChildPlan)
 
       MAPGPUExec(cf, args, outputArraySizes, planLater(child),
         inputEncoder, outputEncoder, outputObjAttr, logPlans) :: Nil
+    case LOADGPU(child, inputEncoder, outputObjAttr) =>
+      val logPlans = new Array[String](2)
+      val modChildPlan = child match {
+        case DeserializeToObject(_, _, lp) => lp
+        case _ => child
+      }
+      logPlans(0) = md5HashObj(plan)
+      logPlans(1) = md5HashObj(modChildPlan)
+
+      val cf = DSCUDAFunction("",null,null,"")
+      MAPGPUExec(cf, null, null, planLater(child),
+        inputEncoder, inputEncoder, outputObjAttr, logPlans) :: Nil
     case _ => Nil
   }
 }
@@ -306,6 +341,29 @@ object CUDADSImplicits {
     }
 
     /**
+      * Cache the child plan and 
+      * Trigger an action on this Dataset so that data is loaded into GPU.
+      * 
+      * @return Return the result after performing a count operation
+      *         on this Dataset
+      */
+    def loadGpu(): Long =  {
+      // Enable Caching on the current Dataset
+      val logPlan = ds.queryExecution.optimizedPlan match {
+        case SerializeFromObject(_, lp) => lp
+        case _ => ds.queryExecution.optimizedPlan
+      }
+      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(md5HashObj(logPlan))
+
+      // Create a new Dataset to load the data into GPU
+      val ds1 = DS[T](ds.sparkSession,
+        LOADGPU[T](getLogicalPlan(ds)))
+
+      // trigger an action
+      ds1.count()
+    }
+
+    /**
       * This function is used to mark the respective Dataset's data to
       * be cached in GPU for future computation rather than cleaning it
       * up every time the DataSet is processed. 
@@ -317,7 +375,7 @@ object CUDADSImplicits {
     def cacheGpu(): Dataset[T] = {
       val logPlan = ds.queryExecution.optimizedPlan match {
         case SerializeFromObject(_, lp) => lp
-	case _ => ds.queryExecution.optimizedPlan
+	      case _ => ds.queryExecution.optimizedPlan
       }
       GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(md5HashObj(logPlan))
       ds
@@ -330,7 +388,7 @@ object CUDADSImplicits {
     def unCacheGpu(): Dataset[T] = {
       val logPlan = ds.queryExecution.optimizedPlan match {
         case SerializeFromObject(_, lp) => lp
-	case _ => ds.queryExecution.optimizedPlan
+	      case _ => ds.queryExecution.optimizedPlan
       }
   
       GPUSparkEnv.get.gpuMemoryManager.unCacheGPUSlaves(md5HashObj(logPlan))
@@ -340,3 +398,4 @@ object CUDADSImplicits {
     ds.sparkSession.experimental.extraStrategies = GPUOperators :: Nil
   }
 }
+
