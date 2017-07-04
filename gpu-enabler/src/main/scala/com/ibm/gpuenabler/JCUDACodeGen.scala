@@ -679,7 +679,8 @@ object JCUDACodeGen extends _Logging {
         |           int blockID, int[] userGridSizes, int[] userBlockSizes, int stages) {
         |        inpitr = inp;
         |        numElements = size;
-        |        hasNextLoop = ${cf.outputSize.getOrElse("numElements")};
+        |        if (!((cached & 4) > 0)) hasNextLoop = ${cf.outputSize.getOrElse("numElements")};
+        |        else hasNextLoop = 1;
         |
         |        refs = inprefs;
         |

@@ -113,12 +113,6 @@ object perfDebug {
       println("Output is " + output)
     })
 
-    timeit("DS: Only Datapoint cached", {
-      val mapDS11 = data111.mapExtFunc(2 * _, dsmapFunction) 
-      val output = mapDS11.reduceExtFunc(_ + _, dsreduceFunction)
-      println("Output is " + output)
-    })
-    
     timeit("DS: CPU", {
       val output = data.map(2 * _).reduce(_ + _)
       println("Output is " + output)
