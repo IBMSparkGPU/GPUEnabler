@@ -123,20 +123,12 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
         GPUSparkEnv.get.cachedDSPartSize.getOrElseUpdate((logPlans(1), partNum), count)
         count
       } else {
-        if (iter.hasNext) {
-          // Populate only the first row as data is already there in GPU; Get the partition size;
-          val value = iter.next().get(0, inputSchema)
-          if (!value.isInstanceOf[UnsafeRow])
-            list += inexprEnc.toRow(value.asInstanceOf[T]).copy()
-          else
-            list += value.asInstanceOf[InternalRow]
-
-          GPUSparkEnv.get.cachedDSPartSize.getOrElseUpdate((logPlans(1), partNum), {
-            val count = iter.size + 1
-            count
-          })
-        } else 0
+        // This logical plan is expected to be in cached; else something is wrong 
+        // and it will assert out;
+        GPUSparkEnv.get.cachedDSPartSize.getOrElse((logPlans(1), partNum), 0)
       }
+
+      assert(dataSize > 0)
 
       // cache the partition size if this plan is cached in GPU
       if ((cached & 1) > 0) {
