@@ -82,24 +82,26 @@ object JCUDACodeGen extends _Logging {
     }
 
     // Create variable's size based on column data type
-    if(is(CONST))
+    if(is(CONST)) {
       size = s"Math.abs($length) * Sizeof.${javaType.toUpperCase()}"
-    else {
+    } else {
       dataType match {
         case ArrayType(d, _) =>
           isArray = true
           arrayType = d
           boxType = ctx.boxedType(d)
           javaType = ctx.javaType(d)
-          if (outputSize != 0 && is(GPUOUTPUT))
+          if (outputSize != 0 && is(GPUOUTPUT)) {
             size = s"$outputSize * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
-          else
+          } else {
             size = s"numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
+          }
         case _ => 
-          if (outputSize != 0 && is(GPUOUTPUT))
+          if (outputSize != 0 && is(GPUOUTPUT)) {
             size = s"$outputSize * Sizeof.${javaType.toUpperCase()}"
-          else
+          } else {
             size = s"numElements * Sizeof.${javaType.toUpperCase()}"
+          }
       }
     }
 
@@ -154,9 +156,11 @@ object JCUDACodeGen extends _Logging {
                else ""
             }
             |if ( !${is(GPUINPUT)} || !((cached & 2) > 0) ||
-            |   !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}") || ${is(RDDOUTPUT)} ) {
-            | cuMemAllocHost(pinMemPtr_$colName, $size);
-            | $hostVariableName = pinMemPtr_$colName.getByteBuffer(0,$size).order(ByteOrder.LITTLE_ENDIAN);
+            |   !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}") || ${is(RDDOUTPUT)} ) { 
+            | if (!((cached & 4) > 0) || ${is(GPUINPUT)} || ${is(CONST)} ) {
+            |   cuMemAllocHost(pinMemPtr_$colName, $size);
+            |   $hostVariableName = pinMemPtr_$colName.getByteBuffer(0,$size).order(ByteOrder.LITTLE_ENDIAN);
+            | }
             |}
           """.stripMargin
 
@@ -297,19 +301,16 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
-    // Copy Data from device to host memory
+    // Copy Data from device to host memory; only for non-GPU only cached memory
     codeStmt += "memcpyD2H" -> {
       // TODO : Evaluate for performance;
-      if(is(GPUOUTPUT))
-        s"cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream);\n"
-      else if (is(GPUINPUT) && is(RDDOUTPUT))
-        // If the child plan is cached & this column is part of the output; there is a least chance
-        // that this data is modified by this logical plan. So for performance we skip on such scenarios.
+      if(is(GPUOUTPUT)  || (is(GPUINPUT) && is(RDDOUTPUT)))
         s"""
-           | if (!((cached & 2) > 0))
-           |  cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream);\n
+           | if (!((cached & 4) > 0))
+           | cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream); \n
          """.stripMargin
-      else ""
+      else
+        ""
     }
 
     // Device memory will be freed if not cached.
@@ -391,8 +392,6 @@ object JCUDACodeGen extends _Logging {
       else ""
     }
   }
-
-
 
   def createVariables(inputSchema : StructType, outputSchema : StructType,
 	      cf : DSCUDAFunction, args : Array[Any],
@@ -580,6 +579,8 @@ object JCUDACodeGen extends _Logging {
       createAllInputVariables(inputSchema, ctx)
 
     val debugMode = SparkEnv.get.conf.getInt("spark.gpuenabler.DebugMode", 0)
+    if(debugMode == 2)
+      println("Compile Existing File - DebugMode")
 
     val codeBody =
       s"""
@@ -643,7 +644,16 @@ object JCUDACodeGen extends _Logging {
         |    private int stages;
         |
         |    ${getStmt(variables,List("declareHost","declareDevice"),"\n")}
-        |
+        |    
+        |    protected void finalize() throws Throwable
+        |    {
+        |       super.finalize();
+        |       if(freeMemory) {
+        |         freePinnedMemory();
+        |         freeMemory=false;
+        |       }
+        |    }    
+        |  
         |    public JCUDAIteratorImpl() {
         |        result = new UnsafeRow(${getAttributes(outputSchema).length});
         |        this.holder = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(result, 32);
@@ -658,7 +668,8 @@ object JCUDACodeGen extends _Logging {
         |           int blockID, int[] userGridSizes, int[] userBlockSizes, int stages) {
         |        inpitr = inp;
         |        numElements = size;
-        |        hasNextLoop = ${cf.outputSize.getOrElse("numElements")};
+        |        if (!((cached & 4) > 0)) hasNextLoop = ${cf.outputSize.getOrElse("numElements")};
+        |        else hasNextLoop = 0;
         |
         |        refs = inprefs;
         |
@@ -743,21 +754,19 @@ object JCUDACodeGen extends _Logging {
 	|         enterLoop = true;
 	|       } else {
 	|         enterLoop = false;
-	|         if (inpitr.hasNext()) {
-	|           allocateMemory((InternalRow) inpitr.next(), cuStream);
-	|         }
+	|         allocateMemory(null, cuStream);
 	|       }
 	|
 	|       if (enterLoop){
-        |       // Fill GPUInput/Direct Copy Host variables
-        |       for(int i=0; inpitr.hasNext();i++) {
-        |          InternalRow r = (InternalRow) inpitr.next();
-        |          if (i == 0)  allocateMemory(r, cuStream);
-        |          ${getStmt(variables,List("readFromInternalRow"),"")}
-        |       }
+        |         // Fill GPUInput/Direct Copy Host variables
+        |         for(int i=0; inpitr.hasNext();i++) {
+        |            InternalRow r = (InternalRow) inpitr.next();
+        |            if (i == 0)  allocateMemory(r, cuStream);
+        |            ${getStmt(variables,List("readFromInternalRow"),"")}
+        |         }
 	|       }
         |
-        |      ${getStmt(variables,List("readFromConstArray"),"")}
+        |       ${getStmt(variables,List("readFromConstArray"),"")}
         |
         |       // Flip buffer for read
         |       ${getStmt(variables,List("flip"),"")}
@@ -765,6 +774,7 @@ object JCUDACodeGen extends _Logging {
         |       // Copy data from Host to Device
         |       ${getStmt(variables,List("memcpyH2D"),"")}
         |       cuCtxSynchronize();
+        |
         | ${
             if (cf.stagesCount.isEmpty) {
               if (cf.funcName != "") {

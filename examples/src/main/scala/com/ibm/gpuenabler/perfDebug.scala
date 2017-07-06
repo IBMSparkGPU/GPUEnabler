@@ -8,6 +8,13 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.SparkConf
 
 object perfDebug {
+  def timeit(msg: String, code: => Any): Any ={
+    val now1 = System.nanoTime
+    code
+    val ms1 = (System.nanoTime - now1) / 1000000
+    println("%s Elapsed time: %d ms".format(msg, ms1))
+  }
+
   def main(args : Array[String]): Unit = {
 
     val masterURL = if (args.length > 0) args(0) else "local[*]"
@@ -50,13 +57,12 @@ object perfDebug {
     // Load the data to GPU
     dataRDD.reduceExtFunc((x1, x2) => x2 , loadFunction)
 
-    val now = System.nanoTime
-    var output: Long = dataRDD.mapExtFunc((x: Long) => 2 * x, mapFunction).cacheGpu()
-      .reduceExtFunc((x: Long, y: Long) => x + y, reduceFunction)
-    val ms = (System.nanoTime - now) / 1000000
-    println("RDD Elapsed time: %d ms".format(ms))
-    
-    println("RDD Output is " + output)
+    timeit("RDD: All cached", {
+      val mapRDD = dataRDD.mapExtFunc((x: Long) => 2 * x, mapFunction).cacheGpu()
+      val output: Long = mapRDD.reduceExtFunc((x: Long, y: Long) => x + y, reduceFunction)
+      mapRDD.unCacheGpu()
+      println("RDD Output is " + output)
+    })
 
     val dsmapFunction = DSCUDAFunction(
       "multiplyBy2",
@@ -72,26 +78,46 @@ object perfDebug {
       Some((size: Long) => 2),
       Some(dimensions), outputSize=Some(1))
 
-    val data = spark.range(1, n+1, 1, part).cache() 
-    // Load the data to GPU and cache it
+    val rd = spark.range(1, n+1, 1, part).cache()
+    rd.count()
+
+    val data = rd.cacheGpu(true)
+    // Load the data to GPU
     data.loadGpu()
 
-    val now1 = System.nanoTime
-    val mapDS = data.mapExtFunc(2 * _, dsmapFunction).cacheGpu()
-    output = mapDS.reduceExtFunc(_ + _, dsreduceFunction)
-    val ms1 = (System.nanoTime - now1) / 1000000
-    println("DS Elapsed time: %d ms".format(ms1))
-    println("DS Output is " + output)
+    timeit("DS: All cached", {
+      val mapDS = data.mapExtFunc(2 * _, dsmapFunction).cacheGpu()
+      val output = mapDS.reduceExtFunc(_ + _, dsreduceFunction)
+      mapDS.unCacheGpu()
+      println("Output is " + output)
+    })
 
-    mapDS.unCacheGpu()
-    data.unCacheGpu()
+    val data111 = rd.cacheGpu(true)
+    // Load the data to GPU
+    data111.loadGpu()
 
-    val now3 = System.nanoTime
-    data.map(2 * _).reduce(_ + _)
-    val ms3 = (System.nanoTime - now3) / 1000000
-    println("CPU Elapsed time: %d ms".format(ms3))
-   }
+    timeit("DS: All cached GPUONLY", { 
+      val mapDS123 = data111.mapExtFunc(2 * _, dsmapFunction).cacheGpu(true)
+      val output = mapDS123.reduceExtFunc(_ + _, dsreduceFunction)
+      mapDS123.unCacheGpu()
+      println("Output is " + output)
+    })
 
+    val data1 = rd
+    // Load the data to GPU
+    data1.loadGpu()
+
+    timeit("DS: No Cache", {
+      val mapDS1 = data1.mapExtFunc(2 * _, dsmapFunction) 
+      val output = mapDS1.reduceExtFunc(_ + _, dsreduceFunction)
+      println("Output is " + output)
+    })
+
+    timeit("DS: CPU", {
+      val output = data.map(2 * _).reduce(_ + _)
+      println("Output is " + output)
+    })
+  }
 }
 
 

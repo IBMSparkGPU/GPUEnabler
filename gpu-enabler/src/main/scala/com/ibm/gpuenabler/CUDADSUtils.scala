@@ -31,6 +31,8 @@ import scala.collection.mutable
 import org.apache.spark.sql.gpuenabler.CUDAUtils._
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import java.util.concurrent.ConcurrentHashMap
+import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.scheduler.{SparkListener, SparkListenerJobStart, SparkListenerJobEnd}
 
 case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
                             outputArraySizes: Array[Int],
@@ -64,9 +66,11 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       // cached: 1 -> this logical plan is cached;
       // cached: 2 -> child logical plan is cached;
       // cached: 0 -> NoCache;
+      // cached: 4 -> this logical plan is cached; data resides only in GPU ;
       val DScache = GPUSparkEnv.get.gpuMemoryManager.cachedGPUDS
       var cached = if (DScache.contains(logPlans(0))) 1 else 0
       cached |= (if(DScache.contains(logPlans(1))) 2 else 0)
+      cached |= (if(GPUSparkEnv.get.gpuMemoryManager.cachedGPUOnlyDS.contains(logPlans(0))) 4 else 0)
 
       // Generate the JCUDA program to be executed and obtain the iterator object
       val jcudaIterator = JCUDACodeGen.generate(inputSchema,
@@ -76,7 +80,7 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       // Get hold of hashmap for this Plan to store the GPU pointers from output parameters
       // cached: 1 -> this logical plan is cached; 2 -> child logical plan is cached
       val curPlanPtrs: java.util.Map[String, CUdeviceptr] = if ((cached & 1) > 0) {
-          val partPtr = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(0), null) //.asJava
+          val partPtr = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(0), null)
           if (partPtr != null) {
             partPtr.getOrElseUpdate(partNum.toLong, {
               new ConcurrentHashMap[String, CUdeviceptr].asScala
@@ -89,7 +93,7 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       }
 
       val childPlanPtrs: java.util.Map[String, CUdeviceptr] =  if ((cached & 2) > 0) {
-        val partPtr = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(1), null) //.asJava
+        val partPtr = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(1), null)
         if (partPtr != null) {
           partPtr.getOrElseUpdate(partNum.toLong, {
             new ConcurrentHashMap[String, CUdeviceptr].asScala
@@ -119,20 +123,12 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
         GPUSparkEnv.get.cachedDSPartSize.getOrElseUpdate((logPlans(1), partNum), count)
         count
       } else {
-        if (iter.hasNext) {
-          // Populate only the first row as data is already there in GPU; Get the partition size;
-          val value = iter.next().get(0, inputSchema)
-          if (!value.isInstanceOf[UnsafeRow])
-            list += inexprEnc.toRow(value.asInstanceOf[T]).copy()
-          else
-            list += value.asInstanceOf[InternalRow]
-
-          GPUSparkEnv.get.cachedDSPartSize.getOrElseUpdate((logPlans(1), partNum), {
-            val count = iter.size + 1
-            count
-          })
-        } else 0
+        // This logical plan is expected to be in cached; else something is wrong 
+        // and it will assert out;
+        GPUSparkEnv.get.cachedDSPartSize.getOrElse((logPlans(1), partNum), 0)
       }
+
+      assert(dataSize > 0)
 
       // cache the partition size if this plan is cached in GPU
       if ((cached & 1) > 0) {
@@ -155,6 +151,8 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       // Triggers execution
       jcudaIterator.hasNext()
 
+      list.clear()
+
       val outEnc = outexprEnc
         .resolveAndBind(getAttributes(outputEncoder.schema))
 
@@ -163,7 +161,7 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 
         override def next: InternalRow =
           InternalRow(outEnc
-             .fromRow(jcudaIterator.next().copy()))
+             .fromRow(jcudaIterator.next()))
       }
     }
   }
@@ -231,11 +229,18 @@ object GPUOperators extends Strategy {
       // cached it done with logical plan UID.
       val logPlans = new Array[String](2)
       val modChildPlan = child match {
-        case DeserializeToObject(_, _, lp) => lp
-	      case _ => child
+        case DeserializeToObject(_, _, lp) =>
+          lp
+	case _ => child
       }
+
       logPlans(0) = md5HashObj(plan)
       logPlans(1) = md5HashObj(modChildPlan)
+
+      if (GPUSparkEnv.isAutoCacheEnabled) {
+        logInfo(s"Optimize : Enable caching for child of logicalplan(${cf.funcName}) : ${logPlans(1)}")
+        GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlavesAuto(logPlans(1))
+      }
 
       MAPGPUExec(cf, args, outputArraySizes, planLater(child),
         inputEncoder, outputEncoder, outputObjAttr, logPlans) :: Nil
@@ -337,7 +342,6 @@ object CUDADSImplicits {
           getLogicalPlan(ds)))
 
       ds1.reduce(func)
-
     }
 
     /**
@@ -372,12 +376,12 @@ object CUDADSImplicits {
       * be achieved as data movement between CPU memory and GPU 
       * memory is considered costly.
       */
-    def cacheGpu(): Dataset[T] = {
+    def cacheGpu(onlyGPU: Boolean = false): Dataset[T] = {
       val logPlan = ds.queryExecution.optimizedPlan match {
         case SerializeFromObject(_, lp) => lp
 	      case _ => ds.queryExecution.optimizedPlan
       }
-      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(md5HashObj(logPlan))
+      GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(md5HashObj(logPlan), onlyGPU)
       ds
     }
 

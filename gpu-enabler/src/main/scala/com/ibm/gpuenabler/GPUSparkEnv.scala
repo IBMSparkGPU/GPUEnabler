@@ -51,6 +51,7 @@ private[gpuenabler] class GPUSparkEnv() {
                     isLocal)
   val isGPUEnabled = if (_cudaManager != null) _cudaManager.isGPUEnabled else false
   def gpuCount = if (isGPUEnabled) _cudaManager.gpuCount else 0
+
   val isGPUCodeGenEnabled =
     isGPUEnabled && SparkEnv.get.conf.getBoolean("spark.gpu.codegen", false)
 
@@ -77,6 +78,10 @@ private[gpuenabler] object GPUSparkEnv {
   def initalize(): Unit = {
       env = new GPUSparkEnv()
   }
+
+  // Auto Caching in GPU Enabled by default
+  val isAutoCacheEnabled: Boolean =
+    if (SparkEnv.get.conf.getInt("spark.gpuenabler.autocache", 1) == 1) true else false
  
   def get = {
       val curSparkEnv = SparkEnv.get
