@@ -526,25 +526,42 @@ object JCUDACodeGen extends _Logging {
   }
 
   def getUserDimensions(localCF: DSCUDAFunction, 
-       numElements: Int): (Int, Array[Int], Array[Int]) = {
+       numElements: Int): (Int, Array[Array[Int]], Array[Array[Int]], Int) = {
     val stagesCount: Int = localCF.stagesCount match {
       case Some(getCount) => getCount(numElements)
       case None => 1
     }
 
-    val gpuBlockSizeList = Array.fill(stagesCount){0}
-    val gpuGridSizeList = Array.fill(stagesCount){0}
+    val gpuBlockSizeList = Array.fill(stagesCount,3){0}
+    val gpuGridSizeList = Array.fill(stagesCount,3){0}
+    var gpuSharedMemory : Int = 0
 
     (0 to stagesCount-1).foreach(idx => {
-      val (gpuGridSize, gpuBlockSize) = localCF.dimensions match {
-        case Some(computeDim) => computeDim(numElements, idx)
-        case None => (0,0) // Compute this in the executor nodes
+      val (gpuGridSizeX : Int, gpuBlockSizeX: Int, gpuGridSizeY : Int, gpuBlockSizeY : Int, gpuGridSizeZ : Int, gpuBlockSizeZ: Int) = localCF.gpuParams match {
+        case Some(gpuParamsCompute) => {
+          gpuParamsCompute.dimensions match {
+            case (computeDim) => computeDim(numElements, idx)
+          }
+        }
+        case None => (1,1,1,1,1,1) // Compute this in the executor nodes
       }
-      gpuBlockSizeList(idx) = gpuBlockSize
-      gpuGridSizeList(idx) = gpuGridSize
+
+      assert(gpuGridSizeX >= 1 || gpuGridSizeY >= 1 || gpuGridSizeZ >= 1 || gpuBlockSizeX >= 1 || gpuBlockSizeY >= 1 || gpuBlockSizeZ >= 1)
+
+      gpuBlockSizeList(idx)(0) = gpuBlockSizeX
+      gpuGridSizeList(idx)(0) = gpuGridSizeX
+      gpuBlockSizeList(idx)(1) = gpuBlockSizeY
+      gpuGridSizeList(idx)(1) = gpuGridSizeY
+      gpuBlockSizeList(idx)(2) = gpuBlockSizeZ
+      gpuGridSizeList(idx)(2) = gpuGridSizeZ
+      val tmpGpuSharedMemory : Int = localCF.gpuParams match {
+        case Some(gpuShCompute) => gpuShCompute.sharedMemorySize.getOrElse(0)
+        case None => 0
+      }
+      gpuSharedMemory = tmpGpuSharedMemory
     })
 
-    (stagesCount, gpuGridSizeList, gpuBlockSizeList)
+    (stagesCount, gpuGridSizeList, gpuBlockSizeList, gpuSharedMemory)
   }
 
   def createAllInputVariables(inputSchema : StructType,
@@ -596,6 +613,7 @@ object JCUDACodeGen extends _Logging {
         |import jcuda.runtime.JCuda;
         |import jcuda.driver.CUstream;
         |import jcuda.runtime.cudaStream_t;
+        |import jcuda.runtime.cudaDeviceProp;
         |import org.apache.spark.sql.catalyst.InternalRow;
         |import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
         |import com.ibm.gpuenabler.JCUDACodegenIterator;
@@ -639,9 +657,10 @@ object JCUDACodeGen extends _Logging {
         |    private Map<String, CUdeviceptr> inputCMap;
         |    private Map<String, CUdeviceptr> outputCMap;
         |
-        |    private int[] blockSizeX;
-        |    private int[] gridSizeX;
+        |    private int[][] blockSizeX;
+        |    private int[][] gridSizeX;
         |    private int stages;
+        |    private int sharedMemory = 0;
         |
         |    ${getStmt(variables,List("declareHost","declareDevice"),"\n")}
         |    
@@ -665,7 +684,7 @@ object JCUDACodeGen extends _Logging {
         |
         |    public void init(Iterator<InternalRow> inp, Object inprefs[], 
         |           int size, int cached, List<Map<String,CUdeviceptr>> gpuPtrs,
-        |           int blockID, int[] userGridSizes, int[] userBlockSizes, int stages) {
+        |           int blockID, int[][] userGridSizes, int[][] userBlockSizes, int stages, int smSize) {
         |        inpitr = inp;
         |        numElements = size;
         |        if (!((cached & 4) > 0)) hasNextLoop = ${cf.outputSize.getOrElse("numElements")};
@@ -680,6 +699,11 @@ object JCUDACodeGen extends _Logging {
         |        gridSizeX = userGridSizes;
         |        blockSizeX = userBlockSizes;
         |        this.stages = stages;
+        |        this.sharedMemory = smSize;
+        |        /* Comparing sharedMemorySize if passed to the max Device shared memory & assert */
+        |        cudaDeviceProp deviceProp = new cudaDeviceProp();
+        |        JCuda.cudaGetDeviceProperties(deviceProp, 0);
+        |        assert ((deviceProp.sharedMemPerBlock) > smSize) : "Invalid shared Memory Size Provided";
         |
         |        if (((cached & 1) > 0)) {
         |           outputCMap = (Map<String, CUdeviceptr>)gpuPtrs.get(0); 
@@ -725,17 +749,17 @@ object JCUDACodeGen extends _Logging {
                  }}
         |
         |       ${ if (cf.stagesCount.isEmpty) {
-		 s"""| blockSizeX = new int[1];
-		     | gridSizeX = new int[1];
-		     |
-		     | CUdevice dev = new CUdevice();
-		     | JCudaDriver.cuCtxGetDevice(dev);
-		     | int dim[] = new int[1];
-		     | JCudaDriver.cuDeviceGetAttribute(dim,
-		     |   CUdevice_attribute.CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X, dev);
-		     | blockSizeX[0] = dim[0];
-		     | gridSizeX[0] = (int) Math.ceil((double) numElements / blockSizeX[0]);
-		""".stripMargin
+                 s"""| blockSizeX = new int[1][1];
+                     | gridSizeX = new int[1][1];
+                     |
+                     | CUdevice dev = new CUdevice();
+                     | JCudaDriver.cuCtxGetDevice(dev);
+                     | int dim[] = new int[1];
+                     | JCudaDriver.cuDeviceGetAttribute(dim,
+                     |   CUdevice_attribute.CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X, dev);
+                     | blockSizeX[0][0] = dim[0];
+                     | gridSizeX[0][0] = (int) Math.ceil((double) numElements / blockSizeX[0][0]);
+                """.stripMargin
                 } else "" }
         |       ${if (cf.funcName != "") {
 		 s"""
@@ -785,9 +809,9 @@ object JCUDACodeGen extends _Logging {
                  |  );
                  |  // Call the kernel function.
                  |  cuLaunchKernel(function,
-                 |    gridSizeX[0], 1, 1,      // Grid dimension
-                 |    blockSizeX[0], 1, 1,      // Block dimension
-                 |    0, cuStream,               // Shared memory size and stream
+                 |    gridSizeX[0][0], 1, 1,      // Grid dimension
+                 |    blockSizeX[0][0], 1, 1,      // Block dimension
+                 |    sharedMemory, cuStream,               // Shared memory size and stream
                  |    kernelParameters, null // Kernel- and extra parameters
                  |  );
                """.stripMargin
@@ -804,9 +828,9 @@ object JCUDACodeGen extends _Logging {
                  |    );
                  |    // Call the kernel function.
                  |    cuLaunchKernel(function,
-                 |      gridSizeX[stage], 1, 1,      // Grid dimension
-                 |      blockSizeX[stage], 1, 1,      // Block dimension
-                 |      0, cuStream,               // Shared memory size and stream
+                 |      gridSizeX[stage][0],gridSizeX[stage][1], gridSizeX[stage][2],      // Grid dimension
+                 |      blockSizeX[stage][0], blockSizeX[stage][1], blockSizeX[stage][2],      // Block dimension
+                 |      sharedMemory, cuStream,               // Shared memory size and stream
                  |      kernelParameters, null // Kernel- and extra parameters
                  |    );
                  |

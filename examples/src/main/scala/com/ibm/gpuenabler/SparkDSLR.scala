@@ -82,8 +82,11 @@ object SparkDSLR {
     val threads = 1024
     val blocks = min((N + threads- 1) / threads, 1024)
     val dimensions = (size: Long, stage: Int) => stage match {
-      case 0 => (blocks, threads)
+      case 0 => (blocks, threads, 1, 1, 1, 1)
     }
+
+    val gpuParams = gpuParameters(dimensions)
+
     val reduceFunction = spark.sparkContext.broadcast(
       DSCUDAFunction(
         "dsblockReduce",
@@ -91,7 +94,7 @@ object SparkDSLR {
         Array("value"),
         ptxURL,
         Some((size: Long) => 1),
-        Some(dimensions), outputSize=Some(1)))
+        Some(gpuParams), outputSize=Some(1)))
 
     val pointsCached = spark.range(1, N+1, 1, numSlices).map(i => generateData(i, N, D, R)).cache()
     val pointsColumnCached = pointsCached.cacheGpu(true)

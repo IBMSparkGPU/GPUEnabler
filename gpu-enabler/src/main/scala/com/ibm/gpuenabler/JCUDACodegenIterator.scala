@@ -28,6 +28,6 @@ abstract class JCUDACodegenIterator extends Iterator[InternalRow] {
   def next() : InternalRow
   def init(itr : java.util.Iterator[InternalRow], args: Array[Any],size : Int,
            cached: Int, gpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]], blockID: Int,
-           userGridSizes: Array[Int], userBlockSizes: Array[Int], stages: Int)
+           userGridSizes: Array[Array[Int]], userBlockSizes: Array[Array[Int]], stages: Int, smSize: Int)
 }
 

@@ -140,13 +140,13 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       // Compute the GPU Grid Dimensions based on the input data size
       // For user provided Dimensions; retrieve it along with the 
       // respective stage information.
-      val (stages, userGridSizes, userBlockSizes) =
+      val (stages, userGridSizes, userBlockSizes, sharedMemory) =
               JCUDACodeGen.getUserDimensions(cf, dataSize)
 
       // Initialize the auto generated code's iterator
       jcudaIterator.init(list.toIterator.asJava, constArgs,
                 dataSize, cached, imgpuPtrs, partNum,
-                userGridSizes, userBlockSizes, stages)
+                userGridSizes, userBlockSizes, stages, sharedMemory)
 
       // Triggers execution
       jcudaIterator.hasNext()
@@ -261,6 +261,19 @@ object GPUOperators extends Strategy {
 }
 
 /**
+  * gpuParameters: This case class is used to describe the GPU Parameters
+  * such as dimensions and shared Memory size which is optional.
+  * @param dimensions : Dimensions should be Given in the following format
+  *                     GridSizeX, BlockSizeX, GridSizeY, BlockSizeY, GridSizeZ, BlockSizeZ.
+  * @param sharedMemorySize : SharedMemorySize to be used in Bytes.
+  *                           It will be validated with the sharedMemorySize of the GPU.
+  */
+case class gpuParameters (
+                        dimensions: (Long, Int) => (Int, Int, Int, Int, Int, Int),
+                        sharedMemorySize: Option[Int] = None
+                      )
+		      
+/**
   * DSCUDAFunction: This case class is used to describe the CUDA kernel and 
   *   maps the i/o parameters to the DataSet's column name on which this 
   *   function is applied. Stages & Dimensions can be specified. If the
@@ -273,7 +286,7 @@ case class DSCUDAFunction(
                            _outputColumnsOrder: Seq[String] = null,
                            resource: Any,
                            stagesCount: Option[Long => Int] = None,
-                           dimensions: Option[(Long, Int) => (Int, Int)] = None,
+                           gpuParams: Option[gpuParameters] = None,
                            outputSize: Option[Long] = None
                          )
 

@@ -1899,4 +1899,64 @@ BB16_10:
 	ret;
 }
 
+	// .globl	MNKernel
+.visible .entry MNKernel(
+	.param .u32 MNKernel_param_0,
+	.param .u64 MNKernel_param_1,
+	.param .u64 MNKernel_param_2,
+	.param .u64 MNKernel_param_3,
+	.param .u32 MNKernel_param_4
+)
+{
+	.reg .pred 	%p<3>;
+	.reg .b32 	%r<18>;
+	.reg .b64 	%rd<24>;
+
+
+	ld.param.u64 	%rd9, [MNKernel_param_1];
+	ld.param.u64 	%rd10, [MNKernel_param_2];
+	ld.param.u64 	%rd6, [MNKernel_param_3];
+	ld.param.u32 	%r5, [MNKernel_param_4];
+	cvta.to.global.u64 	%rd1, %rd10;
+	cvta.to.global.u64 	%rd2, %rd9;
+	mov.u32 	%r7, %ntid.x;
+	mov.u32 	%r8, %ctaid.x;
+	mov.u32 	%r9, %tid.x;
+	mad.lo.s32 	%r1, %r7, %r8, %r9;
+	mov.u32 	%r10, %ntid.y;
+	mov.u32 	%r11, %ctaid.y;
+	mov.u32 	%r12, %tid.y;
+	mad.lo.s32 	%r13, %r10, %r11, %r12;
+	mul.lo.s32 	%r2, %r13, %r5;
+	mov.u64 	%rd22, 0;
+	mov.u64 	%rd23, %rd22;
+	mov.u32 	%r17, 0;
+	setp.lt.s32	%p1, %r5, 1;
+	@%p1 bra 	BB17_2;
+
+BB17_1:
+	add.s32 	%r14, %r17, %r2;
+	mul.wide.s32 	%rd11, %r14, 8;
+	add.s64 	%rd12, %rd2, %rd11;
+	mad.lo.s32 	%r15, %r17, %r5, %r1;
+	mul.wide.s32 	%rd13, %r15, 8;
+	add.s64 	%rd14, %rd1, %rd13;
+	ld.global.u64 	%rd15, [%rd14];
+	ld.global.u64 	%rd16, [%rd12];
+	mul.lo.s64 	%rd17, %rd15, %rd16;
+	add.s64 	%rd23, %rd17, %rd23;
+	add.s32 	%r17, %r17, 1;
+	setp.lt.s32	%p2, %r17, %r5;
+	mov.u64 	%rd22, %rd23;
+	@%p2 bra 	BB17_1;
+
+BB17_2:
+	cvta.to.global.u64 	%rd18, %rd6;
+	add.s32 	%r16, %r2, %r1;
+	mul.wide.s32 	%rd19, %r16, 8;
+	add.s64 	%rd20, %rd18, %rd19;
+	st.global.u64 	[%rd20], %rd22;
+	ret;
+}
+
 
