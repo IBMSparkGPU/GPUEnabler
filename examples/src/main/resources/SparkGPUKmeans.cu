@@ -5,10 +5,7 @@ __global__ void getClusterCentroids(int n, double *xs, int *cluster_index, doubl
  //xs indicates datapoints, c indicates initial centroids, k indicates no. of clusters; d - dimensions
         
         int index = blockIdx.x * blockDim.x + threadIdx.x;
-
         if (index<n){
-
-if(index == 0) printf("n : %d k : %d d : %d xs[0] : %f c[0] : %f\n", n,k,d,xs[index], c[index]);
                 double dist;
                 double prevBest = DBL_MAX;
                 int centroidIndex = 0;
@@ -25,7 +22,6 @@ if(index == 0) printf("n : %d k : %d d : %d xs[0] : %f c[0] : %f\n", n,k,d,xs[in
                 }
 
 		cluster_index[index] = centroidIndex;
- if(index == 0) printf("cluster_index[index] : %d \n", centroidIndex);
 	}
 }
 
@@ -76,9 +72,6 @@ __global__ void calculateIntermediates(int n, double *xs, int *cluster_index,
 				intermediates2[index] = sum2;
 			}
 	}
-if(threadIdx.x == 0) 
-   printf("Grid: %d Block: %d n : %d k : %d d : %d xs[0] : %f cluster_index[0] : %d is0[0]: %d is1[0]: %f \n", 
-      gridDim.x, blockDim.x , n,k,d,xs[threadIdx.x], cluster_index[threadIdx.x], intermediates0[threadIdx.x], intermediates1[threadIdx.x]);
 }
 
 extern "C"
@@ -86,7 +79,8 @@ __global__ void calculateFinal(int n, int *intermediates0, double *intermediates
     double *intermediates2, int *s0, double *s1, double *s2, int k, int d){
 
    if (blockIdx.x > 0) return;
-if(threadIdx.x == 0) printf("n : %d k : %d d : %d s1[0] : %d s1[0] : %f s2[0] : %f \n", n,k,d,s0[threadIdx.x], s1[threadIdx.x], s2[threadIdx.x]);
+
+
 	// Only block is invoked.		
 	// loop for every K 
 	for (int clust = threadIdx.y; clust < k; clust+= blockDim.y){

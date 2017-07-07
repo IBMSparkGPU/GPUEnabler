@@ -12,6 +12,13 @@ case class ClusterIndexes(features: Array[Double], index: Int)
 case class Results(s0: Array[Int], s1: Array[Double], s2: Array[Double])
 
 object GpuKMeans {
+  def timeit(msg: String, code: => Any): Any ={
+    val now1 = System.nanoTime
+    code
+    val ms1 = (System.nanoTime - now1) / 1000000
+    println("%s Elapsed time: %d ms".format(msg, ms1))
+  }
+
   def main(args: Array[String]) = {
 
     val masterURL = if (args.length > 0) args(0) else "local[*]"
@@ -29,28 +36,64 @@ object GpuKMeans {
     val data: Dataset[DataPointKMeans] = getDataSet(spark, inputPath).cache
     val N = data.count()
 
+    println(" ======= GPU ===========")
+
+    val (centers, cost) = runGpu(data, d, k, iters)
+    printCenters("Cluster centers:", centers)
+    println(s"Cost: ${cost}")
+
+    println(" ======= CPU ===========")
+
+    val (ccenters, ccost) = run(data, d, k, iters)
+
+    printCenters("Cluster centers:", ccenters)
+    println(s"Cost: ${ccost}")
+  }
+
+ def runGpu(data: Dataset[DataPointKMeans], d: Int, k: Int,
+          maxIterations: Int): (Array[DataPointKMeans], Double) = {
+
+    import data.sparkSession.implicits._
+
+    val epsilon = 0.5
+    var changed = true
+    var iteration = 0
+    var cost = 0.0
     val ptxURL = "/SparkGPUKmeans.ptx"
 
-    val centroidFn = spark.sparkContext.broadcast(
-      DSCUDAFunction(
+    val centroidFn = DSCUDAFunction(
         "getClusterCentroids",
         Array("features"),
         Array("index"),
-        ptxURL))
+        ptxURL)
 
-    val interFn = spark.sparkContext.broadcast(
-      DSCUDAFunction(
+    val dimensions1 = (size: Long, stage: Int) => stage match {
+      case 0 => (450, d, 1, k, 1, 1)
+    }
+
+    val gpuParams1 = gpuParameters(dimensions1)
+
+    val interFn = DSCUDAFunction(
         "calculateIntermediates",
         Array("features", "index"),
         Array("s0", "s1", "s2"),
-        ptxURL))
+        ptxURL,
+        Some((size: Long) => 1),
+        Some(gpuParams1), outputSize=Some(450))
 
-    val sumFn = spark.sparkContext.broadcast(
-      DSCUDAFunction(
+    val dimensions2 = (size: Long, stage: Int) => stage match {
+      case 0 => (1, d, 1, k, 1, 1)
+    }
+
+    val gpuParams2 = gpuParameters(dimensions2)
+
+        val sumFn = DSCUDAFunction(
         "calculateFinal",
         Array("s0", "s1", "s2"),
         Array("s0", "s1", "s2"),
-        ptxURL))
+        ptxURL,
+        Some((size: Long) => 1),
+        Some(gpuParams2), outputSize=Some(1))
 
 
     def func1(p: DataPointKMeans): ClusterIndexes = {
@@ -62,46 +105,56 @@ object GpuKMeans {
     }
 
     def func3(r1: Results, r2: Results): Results = {
-      Results(Helper1.addArr(r1.s0, r1.s0), 
+      Results(Helper1.addArr(r1.s0, r1.s0),
         Helper1.addArr(r1.s1, r1.s1),Helper1.addArr(r1.s2, r1.s2))
     }
 
     val means: Array[DataPointKMeans] = data.rdd.takeSample(true, k, 42)
-    val initialCentroids = means.flatMap(p => p.features)
-
-    println("C length : " + initialCentroids.length)
 
     data.cacheGpu(true)
     data.loadGpu()
 
-    val centroidIndex = data.mapExtFunc(func1,
-      centroidFn.value,
-      Array(initialCentroids, k, d), outputArraySizes = Array(d)
-    ).cacheGpu()
+    var oldMeans = means
 
-    centroidIndex.collect().take(5).foreach(c => {
-      c.features.foreach(println)
-      println
-      println(c.index)
-      println
+    timeit("GPU :: ", {
+     while (changed && iteration < maxIterations) {
+      val oldCentroids = oldMeans.flatMap(p => p.features)
+
+      // this gets distributed
+      val centroidIndex = data.mapExtFunc(func1,
+        centroidFn,
+        Array(oldCentroids, k, d), outputArraySizes = Array(d)
+      ).cacheGpu(true)
+
+      val interValues = centroidIndex
+          .mapExtFunc(func2, interFn, Array(k, d),
+             outputArraySizes = Array(450*k, 450*k*d, 450*k*d)).cacheGpu(true)
+
+      val result = interValues
+          .reduceExtFunc(func3, sumFn, Array(k, d),
+             outputArraySizes = Array(k, k*d, k*d))
+
+      centroidIndex.unCacheGpu
+      interValues.unCacheGpu
+
+      val newMeans = getCenters(k, d, result.s0, result.s1)
+
+      val maxDelta = oldMeans.zip(newMeans)
+        .map(Helper1.squaredDistance)
+        .max
+
+      cost = getCost(k, d, result.s0, result.s1, result.s2)
+
+      changed = maxDelta > epsilon
+      oldMeans = newMeans
+      //println(s"Cost @ iteration ${iteration} is ${cost}")
+      iteration += 1
+     }
     })
-
-    val interValues = centroidIndex.mapExtFunc(func2, interFn.value, Array(k, d)).cacheGpu()
-
-    val results = interValues.reduceExtFunc(func3, sumFn.value, Array(k, d))
-    results.s0.take(10).foreach(println)
-    results.s1.take(10).foreach(println)
-    results.s2.take(10).foreach(println)
-
-//    println(" ======= CPU ===========")
-//
-//
-//    val (centers, cost) = run(data, d, k, iters)
-//
-//    printCenters("Cluster centers:", centers)
-//    println(s"Cost: ${cost}")
+    data.unCacheGpu
+    println("Finished in " + iteration + " iterations")
+    (oldMeans, cost)
   }
-
 
 
   def train(means: Array[DataPointKMeans], pointItr: Iterator[DataPointKMeans]):
@@ -181,14 +234,10 @@ object GpuKMeans {
     var cost = 0.0
     var oldMeans = means
 
-    while (changed && iteration < maxIterations) {
+    timeit("CPU :: ", {
+     while (changed && iteration < maxIterations) {
 
       // this gets distributed
-
-//      val result = data.map(point => train(oldMeans, point)).reduce((x,y) =>
-//        (Helper1.addArr(x._1, y._1), Helper1.addArr(x._2, y._2), Helper1.addArr(x._3, y._3)))
-
-
       val result = data.mapPartitions(pointItr => train(oldMeans, pointItr)).reduce((x,y) =>
         (Helper1.addArr(x._1, y._1), Helper1.addArr(x._2, y._2), Helper1.addArr(x._3, y._3)))
 
@@ -202,10 +251,10 @@ object GpuKMeans {
 
       changed = maxDelta > epsilon
       oldMeans = newMeans
-      println(s"Cost @ iteration ${iteration} is ${cost}")
+    //  println(s"Cost @ iteration ${iteration} is ${cost}")
       iteration += 1
-
-    }
+     }
+    })
 
     println("Finished in " + iteration + " iterations")
 

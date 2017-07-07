@@ -147,7 +147,7 @@ object JCUDACodeGen extends _Logging {
                 if (is(GPUINPUT))
                   s"""
                     |if (!((cached & 2) > 0) || 
-                    |    !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}") || ${is(RDDOUTPUT)}) { System.out.println("DANGER" + inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}"));
+                    |    !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}") || ${is(RDDOUTPUT)}) { 
                     |  ${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements(); }
                     |""".stripMargin
                  else
@@ -269,9 +269,9 @@ object JCUDACodeGen extends _Logging {
     codeStmt += "flip" -> {
       if(is(GPUINPUT) || (is(CONST) && length != -1))
         s"""
-           |if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) { System.out.println("FLIP:: gpuOutputDevice_${colName}");
+           |if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
            |  ${hostVariableName}.flip();
-           |} else System.out.println("SKIP FLIP:: gpuOutputDevice_${colName}");
+           |}
           """.stripMargin
       else
         ""
@@ -280,7 +280,7 @@ object JCUDACodeGen extends _Logging {
     // Copy Data from host to device memory
     codeStmt += "memcpyH2D" ->{
       if(is(GPUINPUT) || (is(CONST) && length != -1))
-        s"""|if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) { System.out.println("memcpyH2D : gpuOutputDevice_${colName}");
+        s"""|if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
             |  cuMemcpyHtoDAsync($deviceVariableName,
             |      Pointer.to($hostVariableName),
             |      $size, cuStream);
@@ -778,7 +778,7 @@ object JCUDACodeGen extends _Logging {
 	|       if (!((cached & 2) > 0) ${getStmt(variables,List("checkLoop"),"")} ) {
 	|         enterLoop = true;
 	|       } else {
-	|         enterLoop = false; System.out.println("enterLoop FALSE");
+	|         enterLoop = false;
 	|         allocateMemory(null, cuStream);
 	|       }
 	|
@@ -790,15 +790,15 @@ object JCUDACodeGen extends _Logging {
         |            ${getStmt(variables,List("readFromInternalRow"),"")}
         |         }
 	|       }
-        |  System.out.println("DATA READ DONE");
+        |  
         |       ${getStmt(variables,List("readFromConstArray"),"")}
-        |  System.out.println("DATA CONSTANT READ DONE");
+        |  
         |       // Flip buffer for read
         |       ${getStmt(variables,List("flip"),"")}
-        |  System.out.println("DATA FLIP DONE");
+        |  
         |       // Copy data from Host to Device
         |       ${getStmt(variables,List("memcpyH2D"),"")}
-        |       cuCtxSynchronize(); System.out.println("DATA COPY DONE");
+        |       cuCtxSynchronize();
         |
         | ${
             if (cf.stagesCount.isEmpty) {
