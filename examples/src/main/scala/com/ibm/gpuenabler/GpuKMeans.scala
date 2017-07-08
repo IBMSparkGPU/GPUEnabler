@@ -1,17 +1,17 @@
 
 package com.ibm.gpuenabler
 
-import scala.language.implicitConversions
+import java.util.Random
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.{Dataset, SparkSession}
 import com.ibm.gpuenabler.CUDADSImplicits._
 import scala.collection.mutable
 
-case class DataPointKMeans(features: Array[Double])
-case class ClusterIndexes(features: Array[Double], index: Int)
-case class Results(s0: Array[Int], s1: Array[Double], s2: Array[Double])
-
 object GpuKMeans {
+  case class DataPointKMeans(features: Array[Double])
+  case class ClusterIndexes(features: Array[Double], index: Int)
+  case class Results(s0: Array[Int], s1: Array[Double], s2: Array[Double])
+
   def timeit(msg: String, code: => Any): Any ={
     val now1 = System.nanoTime
     code
@@ -19,34 +19,52 @@ object GpuKMeans {
     println("%s Elapsed time: %d ms".format(msg, ms1))
   }
 
-  def main(args: Array[String]) = {
+  def maxPoints(d: Int, k: Int): Int = {
+    val perCluster = 4*450 + (8*450 + 1) *d * 2 // s0 + s1 + s2
+    val clusterBytes = perCluster * k  * 2 // we allocate twice
+
+    val perPoint = 8 * d + 2 * (Integer.SIZE / 8)
+    val available = (512 * 1024 * 1024) - clusterBytes // 512 MB per part
+    val maxPoints = available / perPoint
+    println(s"clusterBytes : ${clusterBytes} maxPoints: ${maxPoints}")
+    if (maxPoints <= 0) throw new IllegalArgumentException("too big: k * dimensions")
+    maxPoints
+  }
+
+  def main(args: Array[String]):Unit = {
 
     val masterURL = if (args.length > 0) args(0) else "local[*]"
-    val k: Int = if (args.length > 1) args(1).toInt else 20
+    val k: Int = if (args.length > 1) args(1).toInt else 32
+    val N: Long = if (args.length > 2) args(2).toLong else 100000
+    val d: Int= if (args.length > 3) args(3).toInt else 32
+    val numSlices = if (args.length > 4) args(4).toInt else 1
+    val iters: Int = if (args.length > 5) args(5).toInt else 5
 
-    val d: Int= if (args.length > 2) args(2).toInt else 2
-    val iters: Int = if (args.length > 3) args(3).toInt else 50
-    val inputPath = if (args.length > 4) args(4) else "src/main/resources/kmeans-samples.txt"
+    if (N/numSlices > maxPoints(d, k)) {
+	println(s"N(${N}) is too high for the given d(${d}) & k(${k}) ; MAX ${maxPoints(d, k) * numSlices}")
+        return
+    }
 
+    println(s"KMeans (${k}) Algorithm on N: ${N} datasets; Dimension: ${d}; slices: ${numSlices} for ${iters} iterations")
     val spark = SparkSession.builder().master(masterURL).appName("SparkDSKMeans").getOrCreate()
     import spark.implicits._
 
     Logger.getRootLogger().setLevel(Level.ERROR)
 
-    val data: Dataset[DataPointKMeans] = getDataSet(spark, inputPath).cache
-    val N = data.count()
+    val data: Dataset[DataPointKMeans] = getDataSet(spark, N, d, numSlices)
+    println("Data Generation Done")
 
     println(" ======= GPU ===========")
 
     val (centers, cost) = runGpu(data, d, k, iters)
-    printCenters("Cluster centers:", centers)
+    // printCenters("Cluster centers:", centers)
     println(s"Cost: ${cost}")
 
     println(" ======= CPU ===========")
 
     val (ccenters, ccost) = run(data, d, k, iters)
 
-    printCenters("Cluster centers:", ccenters)
+    // printCenters("Cluster centers:", ccenters)
     println(s"Cost: ${ccost}")
   }
 
@@ -67,8 +85,18 @@ object GpuKMeans {
         Array("index"),
         ptxURL)
 
+    var limit = 1024
+    var modD = Math.min(d, limit)
+    var modK = Math.min(k, limit)
+    if (modD * modK > limit) {	
+      if (modD <= modK)
+        modD = Math.max(limit/modK, 1)
+      else
+        modK = Math.max(limit/modD, 1)
+    }
+
     val dimensions1 = (size: Long, stage: Int) => stage match {
-      case 0 => (450, d, 1, k, 1, 1)
+      case 0 => (450, modD, 1, modK, 1, 1)
     }
 
     val gpuParams1 = gpuParameters(dimensions1)
@@ -81,8 +109,9 @@ object GpuKMeans {
         Some((size: Long) => 1),
         Some(gpuParams1), outputSize=Some(450))
 
+
     val dimensions2 = (size: Long, stage: Int) => stage match {
-      case 0 => (1, d, 1, k, 1, 1)
+      case 0 => (1, modD, 1, modK, 1, 1)
     }
 
     val gpuParams2 = gpuParameters(dimensions2)
@@ -105,19 +134,21 @@ object GpuKMeans {
     }
 
     def func3(r1: Results, r2: Results): Results = {
-      Results(Helper1.addArr(r1.s0, r1.s0),
-        Helper1.addArr(r1.s1, r1.s1),Helper1.addArr(r1.s2, r1.s2))
+      Results(addArr(r1.s0, r1.s0),
+        addArr(r1.s1, r1.s1),addArr(r1.s2, r1.s2))
     }
 
     val means: Array[DataPointKMeans] = data.rdd.takeSample(true, k, 42)
 
     data.cacheGpu(true)
     data.loadGpu()
+    println("Data loaded in GPU")
 
     var oldMeans = means
 
     timeit("GPU :: ", {
-     while (changed && iteration < maxIterations) {
+     // while (changed && iteration < maxIterations) {
+     while (iteration < maxIterations) {
       val oldCentroids = oldMeans.flatMap(p => p.features)
 
       // this gets distributed
@@ -140,7 +171,7 @@ object GpuKMeans {
       val newMeans = getCenters(k, d, result.s0, result.s1)
 
       val maxDelta = oldMeans.zip(newMeans)
-        .map(Helper1.squaredDistance)
+        .map(squaredDistance)
         .max
 
       cost = getCost(k, d, result.s0, result.s1, result.s2)
@@ -171,7 +202,7 @@ object GpuKMeans {
       var bestDistance = 0.0
 
       for (c <- 0 until k) {
-        var dist = Helper1.squaredDistance(point.features, means(c).features)
+        var dist = squaredDistance(point.features, means(c).features)
 
         if (c == 0 || bestDistance > dist) {
           bestCluster = c
@@ -235,16 +266,17 @@ object GpuKMeans {
     var oldMeans = means
 
     timeit("CPU :: ", {
-     while (changed && iteration < maxIterations) {
+     // while (changed && iteration < maxIterations) {
+     while (iteration < maxIterations) {
 
       // this gets distributed
       val result = data.mapPartitions(pointItr => train(oldMeans, pointItr)).reduce((x,y) =>
-        (Helper1.addArr(x._1, y._1), Helper1.addArr(x._2, y._2), Helper1.addArr(x._3, y._3)))
+        (addArr(x._1, y._1), addArr(x._2, y._2), addArr(x._3, y._3)))
 
       val newMeans: Array[DataPointKMeans] = getCenters(k, d, result._1, result._2)
 
       val maxDelta = oldMeans.zip(newMeans)
-        .map(Helper1.squaredDistance)
+        .map(squaredDistance)
         .max
 
       cost = getCost(k, d, result._1, result._2, result._3)
@@ -257,31 +289,23 @@ object GpuKMeans {
     })
 
     println("Finished in " + iteration + " iterations")
-
     (oldMeans, cost)
   }
 
-  private def getDataSet(spark: SparkSession, path: String): Dataset[DataPointKMeans] = {
+  def generateData(seed: Long, N: Long, D: Int, R: Double): DataPointKMeans = {
+    val r = new Random(seed)
+    def generatePoint(i: Long): DataPointKMeans = {
+      val x = Array.fill(D){r.nextGaussian + i * R}
+      DataPointKMeans(x)
+    }
+    generatePoint(seed)
+  }
+
+  private def getDataSet(spark: SparkSession, N: Long, d: Int, slices: Int): Dataset[DataPointKMeans] = {
     import spark.implicits._
-
-    val rawinputDF = spark.read
-      .option("header", "false")
-      .option("inferSchema", "true")
-      .csv(path)
-
-    val pointsCached = rawinputDF.map(x=> {
-
-      val rowElem = x.getString(0).split(" ")
-      val len = rowElem.length
-      val buffer = new mutable.ListBuffer[Double]()
-      (0 until len). foreach { idx =>
-        if(!rowElem(idx).isEmpty)
-          buffer += rowElem(idx).toDouble
-      }
-
-      DataPointKMeans(buffer.toArray)
-    })
-
+    val R = 0.7  // Scaling factor
+    val pointsCached = spark.range(1, N+1, 1, slices).map(i => generateData(i, N, d, R)).cache
+    pointsCached.count()
     pointsCached
   }
 
@@ -291,9 +315,6 @@ object GpuKMeans {
     centers.foreach(point => println("  " + point.features.mkString(" ") +";"))
   }
 
-}
-
-object Helper1{
   def squaredDistance(a: Seq[Double], b: Seq[Double]): Double = {
     require(a.length == b.length, "equal lengths")
 
@@ -302,29 +323,10 @@ object Helper1{
       .sum
   }
 
-  def addInPlace(lhs: Array[Double], rhs: Array[Double]) = {
-    require(lhs.length == rhs.length, "equal lengths")
-
-    for (i <- 0 until lhs.length) {
-      lhs(i) += rhs(i)
-    }
-  }
-
-  def addInPlace(lhs: Array[Int], rhs: Array[Int]) = {
-    require(lhs.length == rhs.length, "equal lengths")
-
-    for (i <- 0 until lhs.length) {
-      lhs(i) += rhs(i)
-    }
-
-
-  }
-
   def addArr(lhs: Array[Double], rhs: Array[Double]) = {
     require(lhs.length == rhs.length, "equal lengths")
 
     lhs.zip(rhs).map { case (x, y) => x + y }
-
   }
 
   def addArr(lhs: Array[Int], rhs: Array[Int]) = {
