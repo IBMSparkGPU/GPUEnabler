@@ -19,15 +19,14 @@ object GpuKMeans {
     println("%s Elapsed time: %d ms".format(msg, ms1))
   }
 
-  def maxPoints(d: Int, k: Int): Int = {
-    val perCluster = 4*450 + (8*450 + 1) *d * 2 // s0 + s1 + s2
-    val clusterBytes = perCluster * k  * 2 // we allocate twice
+  def maxPoints(d: Int, k: Int, part: Int): Long = {
+    val perCluster: Long = 4*450 + (8*450 + 1) *d * 2 // s0 + s1 + s2
+    val clusterBytes: Long = perCluster * k  * 2 * part // we allocate twice
 
-    val perPoint = 8 * d + 2 * (Integer.SIZE / 8)
-    val available = (512 * 1024 * 1024) - clusterBytes // 512 MB per part
+    val perPoint = 8 * d + 2 * 4 
+    val available: Long = (10L * 1024  * 1024 * 1024) - clusterBytes // 10GB
     val maxPoints = available / perPoint
-    println(s"clusterBytes : ${clusterBytes} maxPoints: ${maxPoints}")
-    if (maxPoints <= 0) throw new IllegalArgumentException("too big: k * dimensions")
+    if (maxPoints <= 0) throw new IllegalArgumentException(s"too big: k * dimensions for the partition count: ${k} * ${d} * ${part} ")
     maxPoints
   }
 
@@ -40,8 +39,8 @@ object GpuKMeans {
     val numSlices = if (args.length > 4) args(4).toInt else 1
     val iters: Int = if (args.length > 5) args(5).toInt else 5
 
-    if (N/numSlices > maxPoints(d, k)) {
-	println(s"N(${N}) is too high for the given d(${d}) & k(${k}) ; MAX ${maxPoints(d, k) * numSlices}")
+    if (N > maxPoints(d, k, numSlices)) {
+	println(s"N(${N}) is too high for the given d(${d}) & k(${k}) ; MAX ${maxPoints(d, k, numSlices) }")
         return
     }
 
@@ -95,6 +94,8 @@ object GpuKMeans {
         modK = Math.max(limit/modD, 1)
     }
 
+    println(s"Dimension are modD x modK : ${modD} x ${modK}")
+
     val dimensions1 = (size: Long, stage: Int) => stage match {
       case 0 => (450, modD, 1, modK, 1, 1)
     }
@@ -134,8 +135,8 @@ object GpuKMeans {
     }
 
     def func3(r1: Results, r2: Results): Results = {
-      Results(addArr(r1.s0, r1.s0),
-        addArr(r1.s1, r1.s1),addArr(r1.s2, r1.s2))
+      Results(addArr(r1.s0, r2.s0),
+        addArr(r1.s1, r2.s1),addArr(r1.s2, r2.s2))
     }
 
     val means: Array[DataPointKMeans] = data.rdd.takeSample(true, k, 42)
@@ -159,7 +160,7 @@ object GpuKMeans {
 
       val interValues = centroidIndex
           .mapExtFunc(func2, interFn, Array(k, d),
-             outputArraySizes = Array(450*k, 450*k*d, 450*k*d)).cacheGpu(true)
+             outputArraySizes = Array(k, k*d, k*d)).cacheGpu(true)
 
       val result = interValues
           .reduceExtFunc(func3, sumFn, Array(k, d),
