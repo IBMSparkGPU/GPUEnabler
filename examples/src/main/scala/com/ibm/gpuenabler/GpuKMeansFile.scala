@@ -23,10 +23,8 @@ object GpuKMeansFile {
 
     val masterURL = if (args.length > 0) args(0) else "local[*]"
     val k: Int = if (args.length > 1) args(1).toInt else 20
-
-    val d: Int= if (args.length > 2) args(2).toInt else 2
+    val inputPath = if (args.length > 2) args(2) else "src/main/resources/kmeans-samples.txt"
     val iters: Int = if (args.length > 3) args(3).toInt else 50
-    val inputPath = if (args.length > 4) args(4) else "src/main/resources/kmeans-samples.txt"
 
     val spark = SparkSession.builder().master(masterURL).appName("SparkDSKMeans").getOrCreate()
     import spark.implicits._
@@ -35,10 +33,11 @@ object GpuKMeansFile {
 
     val data: Dataset[DataPointKMeans] = getDataSet(spark, inputPath).cache
     val N = data.count()
+    val d = data.head.features.length
 
     println(" ======= GPU ===========")
 
-    val (centers, cost) = runGpu(data, d, k, iters)
+    val (centers, cost) = runGpu(data, d, k, iters, true)
     printCenters("Cluster centers:", centers)
     println(s"Cost: ${cost}")
 
@@ -51,7 +50,7 @@ object GpuKMeansFile {
   }
 
  def runGpu(data: Dataset[DataPointKMeans], d: Int, k: Int,
-          maxIterations: Int): (Array[DataPointKMeans], Double) = {
+          maxIterations: Int, dump: Boolean): (Array[DataPointKMeans], Double) = {
 
     import data.sparkSession.implicits._
 
@@ -151,7 +150,26 @@ object GpuKMeansFile {
       iteration += 1
      }
     })
+
+    val oldCentroids = oldMeans.flatMap(p => p.features)
+    val centroidIndex = data.mapExtFunc(func1,
+        centroidFn,
+        Array(oldCentroids, k, d), outputArraySizes = Array(d)
+    )
+
+    if (dump) {
+      import java.io._
+      val pw = new PrintWriter(new File("pointsWithIndex" ))
+
+      centroidIndex.collect().foreach(c => {
+        c.features.foreach(x=> pw.write(x.toString + " "))
+        pw.write(c.index + "\n")
+      })
+      pw.close
+    }
+
     data.unCacheGpu
+
     println("Finished in " + iteration + " iterations")
     (oldMeans, cost)
   }
