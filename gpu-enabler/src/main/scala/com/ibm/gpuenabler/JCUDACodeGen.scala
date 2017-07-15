@@ -145,10 +145,10 @@ object JCUDACodeGen extends _Logging {
             |${
               if (isArray) {
                 if (is(GPUINPUT))
-                  s"""
+                  s""" 
                     |if (!((cached & 2) > 0) || 
-                    |    !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}") || ${is(RDDOUTPUT)}) { 
-                    |  ${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements(); }
+                    |    !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")  || ${is(RDDOUTPUT)}) { 
+                    |   ${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements(); }
                     |""".stripMargin
                  else
                   s"${hostVariableName}_numCols = $length;"
@@ -283,7 +283,7 @@ object JCUDACodeGen extends _Logging {
         s"""|if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
             |  cuMemcpyHtoDAsync($deviceVariableName,
             |      Pointer.to($hostVariableName),
-            |      $size, cuStream);
+            |      $size, cuStream); // System.out.println("cuMemcpyHtoDAsync $hostVariableName ");
             |}
         """.stripMargin
       else
@@ -306,8 +306,8 @@ object JCUDACodeGen extends _Logging {
       // TODO : Evaluate for performance;
       if(is(GPUOUTPUT)  || (is(GPUINPUT) && is(RDDOUTPUT)))
         s"""
-           | if (!((cached & 4) > 0))
-           | cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream); \n
+           | if (!((cached & 4) > 0)) { // System.out.println("cuMemcpyDtoHAsync ${hostVariableName} ");
+           | cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream); \n }
          """.stripMargin
       else
         ""
@@ -316,12 +316,19 @@ object JCUDACodeGen extends _Logging {
     // Device memory will be freed if not cached.
     codeStmt += "FreeDeviceMemory" -> {
       if(is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1)) {
-        if (is(GPUOUTPUT) || is(RDDOUTPUT)) {
+        if (is(GPUOUTPUT) || (is(RDDOUTPUT) && is(GPUINPUT))) {
           s"""| if (((cached & 1) > 0)) {
             |   outputCMap.putIfAbsent(blockID+
             |    "${deviceVariableName.replace("_out_", "_in_")
                      .replace("gpuInputDevice_", "gpuOutputDevice_")}", $deviceVariableName);
-            | } else {
+            | } else if (${is(GPUINPUT)} ) {
+            |   if (((cached & 2) > 0)) {
+            |     inputCMap.putIfAbsent(blockID
+            |       +"${deviceVariableName.replace("gpuInputDevice_", "gpuOutputDevice_")}", $deviceVariableName);
+            |    } else { // System.out.println("FREE11 $deviceVariableName ");
+            |     cuMemFree($deviceVariableName);
+            |    }
+            | } else { // System.out.println("FREE $deviceVariableName ");
             |   cuMemFree($deviceVariableName);
             | }
          """.stripMargin
@@ -774,13 +781,13 @@ object JCUDACodeGen extends _Logging {
         |       CUstream cuStream = new CUstream();
         |       JCudaDriver.cuStreamCreate(cuStream, 0);
         |
-	|       Boolean enterLoop = true;
+	|       Boolean enterLoop = true; 
 	|       if (!((cached & 2) > 0) ${getStmt(variables,List("checkLoop"),"")} ) {
 	|         enterLoop = true;
 	|       } else {
 	|         enterLoop = false;
 	|         allocateMemory(null, cuStream);
-	|       }
+	|       } 
 	|
 	|       if (enterLoop){
         |         // Fill GPUInput/Direct Copy Host variables
@@ -840,8 +847,10 @@ object JCUDACodeGen extends _Logging {
                """.stripMargin
             } else ""
         }
-        |        
-        |        ${getStmt(variables,List("memcpyD2H"),"")}
+        |        ${if (cf.funcName != "") {
+                   // If no kernel is executed as in case of loadGpu; no need to copy data back.        
+			getStmt(variables, List("memcpyD2H"), "")
+                 } else ""}        
         |        cuCtxSynchronize();
         |        // Rewind buffer for read for GPUINPUT & GPUOUTPUT 
         |        ${getStmt(variables,List("rewind"),"")}
