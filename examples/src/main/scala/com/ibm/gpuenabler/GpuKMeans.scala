@@ -142,7 +142,7 @@ object GpuKMeans {
     val means: Array[DataPointKMeans] = data.rdd.takeSample(true, k, 42)
 
     data.cacheGpu(true)
-    //data.loadGpu()
+    data.loadGpu()
     println("Data loaded in GPU")
 
     var oldMeans = means

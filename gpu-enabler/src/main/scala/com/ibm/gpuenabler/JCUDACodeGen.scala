@@ -43,7 +43,7 @@ object JCUDACodeGen extends _Logging {
                       dataType: DataType,
                       inSchemaIdx : Int,
                       outSchemaIdx : Int,
-                      var length : Long,
+                      var length : Int,
                       outputSize: Long,
                       ctx : CodegenContext) {
 
@@ -92,9 +92,9 @@ object JCUDACodeGen extends _Logging {
           boxType = ctx.boxedType(d)
           javaType = ctx.javaType(d)
           if (outputSize != 0 && is(GPUOUTPUT)) {
-            size = s"$outputSize * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
+            size = s"$outputSize * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_colWidth"
           } else {
-            size = s"numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_numCols"
+            size = s"numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_colWidth"
           }
         case _ => 
           if (outputSize != 0 && is(GPUOUTPUT)) {
@@ -114,14 +114,14 @@ object JCUDACodeGen extends _Logging {
         s"""
          |private ByteBuffer $hostVariableName;
          |private CUdeviceptr pinMemPtr_$colName;
-         |${if(isArray) s"private int ${hostVariableName}_numCols;" else ""}
+         |${if(isArray) s"private int ${hostVariableName}_colWidth;" else ""}
            """.stripMargin
       }
       else if (is(RDDOUTPUT)){
         if (isArray)
           s"""
             |private $javaType $hostVariableName[][];
-            |private int ${hostVariableName}_numCols;
+            |private int ${hostVariableName}_colWidth;
            """.stripMargin
         else
           s"private $javaType $hostVariableName[];\n"
@@ -147,11 +147,15 @@ object JCUDACodeGen extends _Logging {
                 if (is(GPUINPUT))
                   s""" 
                     |if (!((cached & 2) > 0) || 
-                    |    !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")  || ${is(RDDOUTPUT)}) { 
-                    |   ${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements(); }
+                    |    !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")  || ${is(RDDOUTPUT)}) {
+                    |  if (r == null && inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) 
+                    |   ${hostVariableName}_colWidth = ((CachedGPUMeta)inputCMap.get(blockID+"gpuOutputDevice_${colName}")).colWidth();
+                    |  else
+                    |   ${hostVariableName}_colWidth = r.getArray($inSchemaIdx).numElements();
+                    |}
                     |""".stripMargin
                  else
-                  s"${hostVariableName}_numCols = $length;"
+                  s"${hostVariableName}_colWidth = $length;"
                }
                else ""
             }
@@ -167,8 +171,8 @@ object JCUDACodeGen extends _Logging {
       else if(is(RDDOUTPUT)) {
         if (isArray)
           s"""
-           |${hostVariableName}_numCols = r.getArray($inSchemaIdx).numElements();
-           |$hostVariableName = new $javaType[numElements][${hostVariableName}_numCols];
+           |${hostVariableName}_colWidth = r.getArray($inSchemaIdx).numElements();
+           |$hostVariableName = new $javaType[numElements][${hostVariableName}_colWidth];
            |
            """.stripMargin
         else
@@ -189,7 +193,7 @@ object JCUDACodeGen extends _Logging {
             | cuMemAlloc($deviceVariableName, $size);
             | ${if (is(GPUOUTPUT)) s"cuMemsetD32Async($deviceVariableName, 0, $size / 4, cuStream);" else ""}
             |} else { 
-            | $deviceVariableName = (CUdeviceptr)inputCMap.get(blockID+"gpuOutputDevice_${colName}");
+            | $deviceVariableName = (CUdeviceptr)((CachedGPUMeta)inputCMap.get(blockID+"gpuOutputDevice_${colName}")).ptr();
             |} 
            """.stripMargin
       else
@@ -212,7 +216,7 @@ object JCUDACodeGen extends _Logging {
           s"""
            |if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
            |  $javaType tmp_${colName}[] = r.getArray($inSchemaIdx).to${boxType}Array();
-           |  for(int j = 0; j < gpuInputHost_${colName}_numCols; j ++)
+           |  for(int j = 0; j < gpuInputHost_${colName}_colWidth; j ++)
            |    ${hostVariableName}.put$boxType(tmp_${colName}[j]);
            |} 
         """.stripMargin
@@ -231,7 +235,7 @@ object JCUDACodeGen extends _Logging {
           s"$hostVariableName[i] = ${ctx.getValue("r", dataType, inSchemaIdx.toString)}.clone();\n"
         case ArrayType(d,_) =>
           s""" | $javaType tmp_${colName}[] = r.getArray($inSchemaIdx).to${boxType}Array();
-               | for(int j=0; j<${hostVariableName}_numCols;j++)
+               | for(int j=0; j<${hostVariableName}_colWidth;j++)
                |    ${hostVariableName}[i][j] = tmp_${colName}[j];
           """.stripMargin
         case _ =>
@@ -283,7 +287,7 @@ object JCUDACodeGen extends _Logging {
         s"""|if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
             |  cuMemcpyHtoDAsync($deviceVariableName,
             |      Pointer.to($hostVariableName),
-            |      $size, cuStream); // System.out.println("cuMemcpyHtoDAsync $hostVariableName ");
+            |      $size, cuStream);
             |}
         """.stripMargin
       else
@@ -306,7 +310,7 @@ object JCUDACodeGen extends _Logging {
       // TODO : Evaluate for performance;
       if(is(GPUOUTPUT)  || (is(GPUINPUT) && is(RDDOUTPUT)))
         s"""
-           | if (!((cached & 4) > 0)) { // System.out.println("cuMemcpyDtoHAsync ${hostVariableName} ");
+           | if (!((cached & 4) > 0)) {
            | cuMemcpyDtoHAsync(Pointer.to(${hostVariableName}), $deviceVariableName, $size, cuStream); \n }
          """.stripMargin
       else
@@ -314,34 +318,50 @@ object JCUDACodeGen extends _Logging {
     }
 
     // Device memory will be freed if not cached.
+    // GPUOUT : This LP should own this device memory; if cached , store it into my ptrs clean it later
+    // GPUIN : child LP should own this device memory; if child is cached, store it in child ptrs,
+    //         if child is cached and clean when child is unCached. If this variable is
+    //         part of this plan's output(RDDOUTPUT) store it into my ptrs but not clean
+    //         it as part of my unCached routines. But own it if the child is not cached.
     codeStmt += "FreeDeviceMemory" -> {
       if(is(GPUINPUT) || is(GPUOUTPUT) || (is(CONST) && length != -1)) {
-        if (is(GPUOUTPUT) || (is(RDDOUTPUT) && is(GPUINPUT))) {
-          s"""| if (((cached & 1) > 0)) {
-            |   outputCMap.putIfAbsent(blockID+
-            |    "${deviceVariableName.replace("_out_", "_in_")
-                     .replace("gpuInputDevice_", "gpuOutputDevice_")}", $deviceVariableName);
-            | } else if (${is(GPUINPUT)} ) {
-            |   if (((cached & 2) > 0)) {
-            |     inputCMap.putIfAbsent(blockID
-            |       +"${deviceVariableName.replace("gpuInputDevice_", "gpuOutputDevice_")}", $deviceVariableName);
-            |    } else { // System.out.println("FREE11 $deviceVariableName ");
-            |     cuMemFree($deviceVariableName);
-            |    }
-            | } else { // System.out.println("FREE $deviceVariableName ");
-            |   cuMemFree($deviceVariableName);
-            | }
+        if (is(GPUOUTPUT)) {
+          s"""|
+              | if (((cached & 1) > 0)) {
+              |   own = true;
+              |   ${if (isArray) {
+                     s"colWidth = ${hostVariableName}_colWidth;"
+                  } else {
+                     "colWidth = 1;"
+                  }}
+              |   outputCMap.putIfAbsent(blockID+
+              |    "${deviceVariableName.replace("_out_", "_in_")}", new CachedGPUMeta($deviceVariableName, own, colWidth));
+              | } else {
+              |   cuMemFree($deviceVariableName);
+              | }
          """.stripMargin
         }  else if (is(GPUINPUT)) {
-          s"""|if (((cached & 2) > 0)) {
-             | inputCMap.putIfAbsent(blockID
-             |   +"${deviceVariableName.replace("gpuInputDevice_", "gpuOutputDevice_")}", $deviceVariableName);
-             |} else {
-             |  cuMemFree($deviceVariableName);
-             |}
+          s"""|
+              | ${if (isArray) {
+                     s"colWidth = ${hostVariableName}_colWidth;"
+                  } else {
+                     "colWidth = 1;"
+                  }}
+              | own = true;
+              | if (((cached & 2) > 0)) {
+              |  own = false;
+              |  inputCMap.putIfAbsent(blockID
+              |   +"${deviceVariableName.replace("gpuInputDevice_", "gpuOutputDevice_")}", new CachedGPUMeta($deviceVariableName, own, colWidth));
+              | }
+              | if (${is(RDDOUTPUT)} && (cached & 1) > 0) {
+              |   outputCMap.putIfAbsent(blockID+
+              |     "${deviceVariableName.replace("gpuInputDevice_", "gpuOutputDevice_")}", new CachedGPUMeta($deviceVariableName, own, colWidth));
+              | } else if (own) {
+              |   cuMemFree($deviceVariableName);
+              | }
            """.stripMargin
-        } else {
-          s"""|cuMemFree($deviceVariableName);
+        } else { 
+          s"""|cuMemFree($deviceVariableName); 
          """.stripMargin
         }
       }else
@@ -368,9 +388,9 @@ object JCUDACodeGen extends _Logging {
           if(isArray)
             s"""
                |int tmpCursor_${colName} = holder.cursor;
-               |arrayWriter.initialize(holder,${hostVariableName}_numCols,
+               |arrayWriter.initialize(holder,${hostVariableName}_colWidth,
                |  ${dataType.defaultSize});
-               |for(int j=0;j<${hostVariableName}_numCols;j++)
+               |for(int j=0;j<${hostVariableName}_colWidth;j++)
                |  arrayWriter.write(j, ${hostVariableName}.get$boxType());
                |rowWriter.setOffsetAndSize(${outSchemaIdx}, 
                |  tmpCursor_${colName}, holder.cursor - tmpCursor_${colName});
@@ -384,9 +404,9 @@ object JCUDACodeGen extends _Logging {
             case ArrayType(d, _) =>
               s"""
                  |int tmpCursor${colName} = holder.cursor;
-                 |arrayWriter.initialize(holder,${hostVariableName}_numCols,
+                 |arrayWriter.initialize(holder,${hostVariableName}_colWidth,
                  |  ${dataType.defaultSize});
-                 |for(int j=0;j<${hostVariableName}_numCols;j++)
+                 |for(int j=0;j<${hostVariableName}_colWidth;j++)
                  |  arrayWriter.write(j, ${hostVariableName}[idx][j]);
                  |rowWriter.setOffsetAndSize(${outSchemaIdx}, tmpCursor${colName},
                  |  holder.cursor - tmpCursor${colName});
@@ -633,6 +653,7 @@ object JCUDACodeGen extends _Logging {
         |import com.ibm.gpuenabler.GPUSparkEnv;
         |import java.util.Map;
         |import java.util.List;
+        |import com.ibm.gpuenabler.CachedGPUMeta;
         |
         |public class GeneratedCode_${cf.funcName} { // REMOVE
 	|   // Handle to call from compiled source
@@ -655,15 +676,17 @@ object JCUDACodeGen extends _Logging {
         |    private int numElements = 0;
         |    private int hasNextLoop = 0;
         |    private Object refs[];
+        |    private boolean own = true;
+        |    private int colWidth = 1;
         |
         |    // cached : 0 - NoCache;
         |    // 1 - DS is cached; Hold GPU results in GPU
         |    // 2 - child DS is cached; Use GPU results stored by child for input parameters
         |    private int cached = 0;
         |    private int blockID = 0;
-        |    private List<Map<String,CUdeviceptr>> gpuPtrs;
-        |    private Map<String, CUdeviceptr> inputCMap;
-        |    private Map<String, CUdeviceptr> outputCMap;
+        |    private List<Map<String,CachedGPUMeta>> gpuPtrs;
+        |    private Map<String, CachedGPUMeta> inputCMap;
+        |    private Map<String, CachedGPUMeta> outputCMap;
         |
         |    private int[][] blockSizeX;
         |    private int[][] gridSizeX;
@@ -691,7 +714,7 @@ object JCUDACodeGen extends _Logging {
         |    }
         |
         |    public void init(Iterator<InternalRow> inp, Object inprefs[], 
-        |           int size, int cached, List<Map<String,CUdeviceptr>> gpuPtrs,
+        |           int size, int cached, List<Map<String,CachedGPUMeta>> gpuPtrs,
         |           int blockID, int[][] userGridSizes, int[][] userBlockSizes, int stages, int smSize) {
         |        inpitr = inp;
         |        numElements = size;
@@ -714,11 +737,11 @@ object JCUDACodeGen extends _Logging {
         |        assert ((deviceProp.sharedMemPerBlock) > smSize) : "Invalid shared Memory Size Provided";
         |
         |        if (((cached & 1) > 0)) {
-        |           outputCMap = (Map<String, CUdeviceptr>)gpuPtrs.get(0); 
+        |           outputCMap = (Map<String, CachedGPUMeta>)gpuPtrs.get(0); 
         |        }
         |
         |        if (((cached & 2) > 0)) {
-        |           inputCMap = (Map<String, CUdeviceptr>) gpuPtrs.get(1);
+        |           inputCMap = (Map<String, CachedGPUMeta>) gpuPtrs.get(1);
         |        }
         |    }
         |
@@ -788,7 +811,7 @@ object JCUDACodeGen extends _Logging {
 	|         enterLoop = false;
 	|         allocateMemory(null, cuStream);
 	|       } 
-	|
+	|  
 	|       if (enterLoop){
         |         // Fill GPUInput/Direct Copy Host variables
         |         for(int i=0; inpitr.hasNext();i++) {

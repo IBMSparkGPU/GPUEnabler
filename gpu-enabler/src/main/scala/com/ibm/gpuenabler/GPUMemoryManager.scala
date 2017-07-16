@@ -199,6 +199,8 @@ private[gpuenabler] class GPUMemoryManagerSlaveEndPoint(val rpcEnv: _RpcEnv,
   }
 }
 
+case class CachedGPUMeta (ptr: CUdeviceptr, own: Boolean, colWidth: java.lang.Integer )
+
 private[gpuenabler] class GPUMemoryManager(val executorId : String,
                        val rpcEnv : _RpcEnv,
                        val driverEndpoint: _RpcEndpointRef,
@@ -206,12 +208,12 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
                        val isLocal : Boolean) {
   
   val cachedGPUPointersDS = new ConcurrentHashMap[String,
-    collection.concurrent.Map[Long, collection.concurrent.Map[String, CUdeviceptr]]].asScala
+    collection.concurrent.Map[Long, collection.concurrent.Map[String, CachedGPUMeta]]].asScala
   val cachedGPUOnlyDS = new mutable.ListBuffer[String]()
   val cachedGPUDS = new mutable.ListBuffer[String]()
 
   def getCachedGPUPointersDS : collection.concurrent.Map[String,
-    collection.concurrent.Map[Long, collection.concurrent.Map[String, CUdeviceptr]]] = cachedGPUPointersDS
+    collection.concurrent.Map[Long, collection.concurrent.Map[String, CachedGPUMeta]]] = cachedGPUPointersDS
 
   def cacheGPU(lp : String, flag: Boolean =false): Unit = {
     if (flag) {
@@ -227,7 +229,7 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
       }
     }
     cachedGPUPointersDS.getOrElseUpdate(lp, {
-      new ConcurrentHashMap[Long, collection.concurrent.Map[String, CUdeviceptr]].asScala
+      new ConcurrentHashMap[Long, collection.concurrent.Map[String, CachedGPUMeta]].asScala
     })
   }
 
@@ -239,7 +241,7 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
         val gpuPtrs = partNumPtrs.values
         gpuPtrs.foreach((partPtr) => {
           partPtr.foreach{
-            case (_, ptr) => GPUSparkEnv.get.cudaManager.freeGPUMemory(ptr)
+            case (name, obj) => if (obj.own) { GPUSparkEnv.get.cudaManager.freeGPUMemory(obj.ptr) }
           }
         })
         cachedGPUPointersDS -= lp

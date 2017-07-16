@@ -79,33 +79,37 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 
       // Get hold of hashmap for this Plan to store the GPU pointers from output parameters
       // cached: 1 -> this logical plan is cached; 2 -> child logical plan is cached
-      val curPlanPtrs: java.util.Map[String, CUdeviceptr] = if ((cached & 1) > 0) {
+      val curPlanPtrs: java.util.Map[String, CachedGPUMeta] = if ((cached & 1) > 0) {
+        logDebug("current plan is cached")
           val partPtr = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(0), null)
           if (partPtr != null) {
             partPtr.getOrElseUpdate(partNum.toLong, {
-              new ConcurrentHashMap[String, CUdeviceptr].asScala
+              logDebug("no cached ptrs for current plan ")
+              new ConcurrentHashMap[String, CachedGPUMeta].asScala
             }).asJava
           } else {
             null
           }
         } else {
-        Map[String, CUdeviceptr]().asJava
+        Map[String, CachedGPUMeta]().asJava
       }
 
-      val childPlanPtrs: java.util.Map[String, CUdeviceptr] =  if ((cached & 2) > 0) {
+      val childPlanPtrs: java.util.Map[String, CachedGPUMeta] =  if ((cached & 2) > 0) {
+        logDebug("child plan is cached")
         val partPtr = GPUSparkEnv.get.gpuMemoryManager.getCachedGPUPointersDS.getOrElse(logPlans(1), null)
         if (partPtr != null) {
           partPtr.getOrElseUpdate(partNum.toLong, {
-            new ConcurrentHashMap[String, CUdeviceptr].asScala
+            logDebug("no cached ptr for child plan ")
+            new ConcurrentHashMap[String, CachedGPUMeta].asScala
           }).asJava
         } else {
           null
         }
       } else {
-        Map[String, CUdeviceptr]().asJava
+        Map[String, CachedGPUMeta]().asJava
       }
 
-      val imgpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]] =
+      val imgpuPtrs: java.util.List[java.util.Map[String, CachedGPUMeta]] =
 		List(curPlanPtrs, childPlanPtrs).asJava
 
       // Retrieve the partition size and cache it if the child logical plan is cached.
