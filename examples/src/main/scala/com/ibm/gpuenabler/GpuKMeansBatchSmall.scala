@@ -1,4 +1,3 @@
-
 package com.ibm.gpuenabler
 
 import java.util.Random
@@ -7,7 +6,7 @@ import org.apache.spark.sql.{Dataset, SparkSession}
 import com.ibm.gpuenabler.CUDADSImplicits._
 import scala.collection.mutable
 
-object GpuKMeans {
+object GpuKMeansBatchSmall {
   case class DataPointKMeans(features: Array[Double])
   case class ClusterIndexes(features: Array[Double], index: Int)
   case class Results(s0: Array[Int], s1: Array[Double], s2: Array[Double])
@@ -23,7 +22,7 @@ object GpuKMeans {
     val perCluster: Long = 4*450 + (8*450 + 1) *d * 2 // s0 + s1 + s2
     val clusterBytes: Long = perCluster * k  * 2 * part // we allocate twice
 
-    val perPoint = 8 * d + 2 * 4 
+    val perPoint = 8 * d + 2 * 4
     val available: Long = (10L * 1024  * 1024 * 1024 * nGpu) - clusterBytes // 10GB
     val maxPoints = available / perPoint
     if (maxPoints <= 0) throw new IllegalArgumentException(s"too big: k * dimensions for the partition count: ${k} * ${d} * ${part} ")
@@ -41,8 +40,8 @@ object GpuKMeans {
     val nGpu: Int = if (args.length > 6) args(6).toInt else 1
 
     if (N > maxPoints(d, k, numSlices, nGpu)) {
-	println(s"N(${N}) is too high for the given d(${d}) & k(${k}) ; MAX ${maxPoints(d, k, numSlices,nGpu) }")
-        return
+      println(s"N(${N}) is too high for the given d(${d}) & k(${k}) ; MAX ${maxPoints(d, k, numSlices,nGpu) }")
+      return
     }
 
     println(s"KMeans (${k}) Algorithm on N: ${N} datasets; Dimension: ${d}; slices: ${numSlices} for ${iters} iterations")
@@ -68,8 +67,8 @@ object GpuKMeans {
     println(s"Cost: ${ccost}")
   }
 
- def runGpu(data: Dataset[DataPointKMeans], d: Int, k: Int,
-          maxIterations: Int): (Array[DataPointKMeans], Double) = {
+  def runGpu(data: Dataset[DataPointKMeans], d: Int, k: Int,
+             maxIterations: Int): (Array[DataPointKMeans], Double) = {
 
     import data.sparkSession.implicits._
 
@@ -80,15 +79,15 @@ object GpuKMeans {
     val ptxURL = "/SparkGPUKmeans.ptx"
 
     val centroidFn = DSCUDAFunction(
-        "getClusterCentroids",
-        Array("features"),
-        Array("index"),
-        ptxURL)
+      "getClusterCentroids",
+      Array("features"),
+      Array("index"),
+      ptxURL)
 
     var limit = 1024
     var modD = Math.min(d, limit)
     var modK = Math.min(k, limit)
-    if (modD * modK > limit) {	
+    if (modD * modK > limit) {
       if (modD <= modK)
         modD = Math.max(limit/modK, 1)
       else
@@ -104,12 +103,12 @@ object GpuKMeans {
     val gpuParams1 = gpuParameters(dimensions1)
 
     val interFn = DSCUDAFunction(
-        "calculateIntermediates",
-        Array("features", "index"),
-        Array("s0", "s1", "s2"),
-        ptxURL,
-        Some((size: Long) => 1),
-        Some(gpuParams1), outputSize=Some(450))
+      "calculateIntermediates",
+      Array("features", "index"),
+      Array("s0", "s1", "s2"),
+      ptxURL,
+      Some((size: Long) => 1),
+      Some(gpuParams1), outputSize=Some(450))
 
 
     val dimensions2 = (size: Long, stage: Int) => stage match {
@@ -118,13 +117,13 @@ object GpuKMeans {
 
     val gpuParams2 = gpuParameters(dimensions2)
 
-        val sumFn = DSCUDAFunction(
-        "calculateFinal",
-        Array("s0", "s1", "s2"),
-        Array("s0", "s1", "s2"),
-        ptxURL,
-        Some((size: Long) => 1),
-        Some(gpuParams2), outputSize=Some(1))
+    val sumFn = DSCUDAFunction(
+      "calculateFinal",
+      Array("s0", "s1", "s2"),
+      Array("s0", "s1", "s2"),
+      ptxURL,
+      Some((size: Long) => 1),
+      Some(gpuParams2), outputSize=Some(1))
 
 
     def func1(p: DataPointKMeans): ClusterIndexes = {
@@ -142,55 +141,66 @@ object GpuKMeans {
 
     val means: Array[DataPointKMeans] = data.rdd.takeSample(true, k, 42)
 
-    data.cacheGpu(true)
-    timeit("Data loaded in GPU ", { data.loadGpu() })
+    val dataSplits = data.randomSplit(Array(0.5,0.5), 42)
 
     var oldMeans = means
 
     timeit("GPU :: ", {
-     // while (changed && iteration < maxIterations) {
-     while (iteration < maxIterations) {
-      val oldCentroids = oldMeans.flatMap(p => p.features)
+      while (iteration < maxIterations) {
 
-      // this gets distributed
-      val centroidIndex = data.mapExtFunc(func1,
-        centroidFn,
-        Array(oldCentroids, k, d), outputArraySizes = Array(d)
-      ).cacheGpu(true)
+        val dataSplitDS = dataSplits.map(datasplit => {
 
-      val interValues = centroidIndex
-          .mapExtFunc(func2, interFn, Array(k, d),
-             outputArraySizes = Array(k, k*d, k*d)).cacheGpu(true)
+          datasplit.cacheGpu(true)
 
-      val result = interValues
-          .reduceExtFunc(func3, sumFn, Array(k, d),
-             outputArraySizes = Array(k, k*d, k*d))
+          val oldCentroids = oldMeans.flatMap(p => p.features)
 
-      centroidIndex.unCacheGpu
-      interValues.unCacheGpu
+          // this gets distributed
+          val centroidIndex = datasplit.mapExtFunc(func1,
+            centroidFn,
+            Array(oldCentroids, k, d), outputArraySizes = Array(d)
+          ).cacheGpu(true)
 
-      val newMeans = getCenters(k, d, result.s0, result.s1)
+          val interValues = centroidIndex
+            .mapExtFunc(func2, interFn, Array(k, d),
+              outputArraySizes = Array(k, k*d, k*d)).cacheGpu(true)
 
-      val maxDelta = oldMeans.zip(newMeans)
-        .map(squaredDistance)
-        .max
+          val result = interValues
+            .reduceExtFunc(func3, sumFn, Array(k, d),
+              outputArraySizes = Array(k, k*d, k*d))
 
-      cost = getCost(k, d, result.s0, result.s1, result.s2)
+          centroidIndex.unCacheGpu
+          interValues.unCacheGpu
+          datasplit.unCacheGpu
 
-      changed = maxDelta > epsilon
-      oldMeans = newMeans
-      //println(s"Cost @ iteration ${iteration} is ${cost}")
-      iteration += 1
-     }
+          result
+        })
+
+        val result = dataSplitDS.reduce((x,y) =>
+          Results(addArr(x.s0, y.s0), addArr(x.s1, y.s1), addArr(x.s2, y.s2)))
+
+        val newMeans = getCenters(k, d, result.s0, result.s1)
+
+        val maxDelta = oldMeans.zip(newMeans)
+          .map(squaredDistance)
+          .max
+
+        cost = getCost(k, d, result.s0, result.s1, result.s2)
+
+        changed = maxDelta > epsilon
+        oldMeans = newMeans
+        //println(s"Cost @ iteration ${iteration} is ${cost}")
+        iteration += 1
+
+      }
     })
-    data.unCacheGpu
     println("Finished in " + iteration + " iterations")
     (oldMeans, cost)
+
   }
 
 
   def train(means: Array[DataPointKMeans], pointItr: Iterator[DataPointKMeans]):
-      Iterator[Tuple3[Array[Int], Array[Double], Array[Double]]] = {
+  Iterator[Tuple3[Array[Int], Array[Double], Array[Double]]] = {
     val d = means(0).features.size
     val k = means.length
 
@@ -267,26 +277,26 @@ object GpuKMeans {
     var oldMeans = means
 
     timeit("CPU :: ", {
-     // while (changed && iteration < maxIterations) {
-     while (iteration < maxIterations) {
+      // while (changed && iteration < maxIterations) {
+      while (iteration < maxIterations) {
 
-      // this gets distributed
-      val result = data.mapPartitions(pointItr => train(oldMeans, pointItr)).reduce((x,y) =>
-        (addArr(x._1, y._1), addArr(x._2, y._2), addArr(x._3, y._3)))
+        // this gets distributed
+        val result = data.mapPartitions(pointItr => train(oldMeans, pointItr)).reduce((x,y) =>
+          (addArr(x._1, y._1), addArr(x._2, y._2), addArr(x._3, y._3)))
 
-      val newMeans: Array[DataPointKMeans] = getCenters(k, d, result._1, result._2)
+        val newMeans: Array[DataPointKMeans] = getCenters(k, d, result._1, result._2)
 
-      val maxDelta = oldMeans.zip(newMeans)
-        .map(squaredDistance)
-        .max
+        val maxDelta = oldMeans.zip(newMeans)
+          .map(squaredDistance)
+          .max
 
-      cost = getCost(k, d, result._1, result._2, result._3)
+        cost = getCost(k, d, result._1, result._2, result._3)
 
-      changed = maxDelta > epsilon
-      oldMeans = newMeans
-    //  println(s"Cost @ iteration ${iteration} is ${cost}")
-      iteration += 1
-     }
+        changed = maxDelta > epsilon
+        oldMeans = newMeans
+        //  println(s"Cost @ iteration ${iteration} is ${cost}")
+        iteration += 1
+      }
     })
 
     println("Finished in " + iteration + " iterations")
@@ -343,4 +353,3 @@ object GpuKMeans {
     squaredDistance(p._1, p._2)
   }
 }
-
