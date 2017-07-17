@@ -349,9 +349,9 @@ object JCUDACodeGen extends _Logging {
                   }}
               | own = true;
               | if (((cached & 2) > 0)) {
-              |  own = false;
-              |  inputCMap.putIfAbsent(blockID
-              |   +"${deviceVariableName.replace("gpuInputDevice_", "gpuOutputDevice_")}", new CachedGPUMeta($deviceVariableName, own, colWidth));
+              |   own = false;
+              |   inputCMap.putIfAbsent(blockID
+              |    +"${deviceVariableName.replace("gpuInputDevice_", "gpuOutputDevice_")}", new CachedGPUMeta($deviceVariableName, true, colWidth));
               | }
               | if (${is(RDDOUTPUT)} && (cached & 1) > 0) {
               |   outputCMap.putIfAbsent(blockID+

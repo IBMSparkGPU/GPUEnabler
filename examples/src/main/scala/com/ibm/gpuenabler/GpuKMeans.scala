@@ -19,12 +19,12 @@ object GpuKMeans {
     println("%s Elapsed time: %d ms".format(msg, ms1))
   }
 
-  def maxPoints(d: Int, k: Int, part: Int): Long = {
+  def maxPoints(d: Int, k: Int, part: Int, nGpu: Int): Long = {
     val perCluster: Long = 4*450 + (8*450 + 1) *d * 2 // s0 + s1 + s2
     val clusterBytes: Long = perCluster * k  * 2 * part // we allocate twice
 
     val perPoint = 8 * d + 2 * 4 
-    val available: Long = (10L * 1024  * 1024 * 1024) - clusterBytes // 10GB
+    val available: Long = (10L * 1024  * 1024 * 1024 * nGpu) - clusterBytes // 10GB
     val maxPoints = available / perPoint
     if (maxPoints <= 0) throw new IllegalArgumentException(s"too big: k * dimensions for the partition count: ${k} * ${d} * ${part} ")
     maxPoints
@@ -38,9 +38,10 @@ object GpuKMeans {
     val d: Int= if (args.length > 3) args(3).toInt else 32
     val numSlices = if (args.length > 4) args(4).toInt else 1
     val iters: Int = if (args.length > 5) args(5).toInt else 5
+    val nGpu: Int = if (args.length > 6) args(6).toInt else 1
 
-    if (N > maxPoints(d, k, numSlices)) {
-	println(s"N(${N}) is too high for the given d(${d}) & k(${k}) ; MAX ${maxPoints(d, k, numSlices) }")
+    if (N > maxPoints(d, k, numSlices, nGpu)) {
+	println(s"N(${N}) is too high for the given d(${d}) & k(${k}) ; MAX ${maxPoints(d, k, numSlices,nGpu) }")
         return
     }
 
