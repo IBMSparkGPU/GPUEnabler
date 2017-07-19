@@ -46,6 +46,8 @@ object GpuKMeansBatch {
 
     println(s"KMeans (${k}) Algorithm on N: ${N} datasets; Dimension: ${d}; slices: ${numSlices} for ${iters} iterations")
     val spark = SparkSession.builder().master(masterURL).appName("SparkDSKMeans").getOrCreate()
+    spark.sparkContext.setCheckpointDir("/tmp")
+
     import spark.implicits._
 
     Logger.getRootLogger().setLevel(Level.ERROR)
@@ -56,9 +58,10 @@ object GpuKMeansBatch {
     println(" ======= GPU ===========")
 
     val (centers, cost) = runGpu(data, d, k, iters)
+
     // printCenters("Cluster centers:", centers)
     println(s"Cost: ${cost}")
-
+   
     println(" ======= CPU ===========")
 
     val (ccenters, ccost) = run(data, d, k, iters)
@@ -143,6 +146,8 @@ object GpuKMeansBatch {
     
     val dataSplits = data.randomSplit(Array(0.5,0.5), 42)
 
+    // dataSplits.foreach(ds=> { timeit("Data loaded in GPU", { ds.cacheGpu(true);  ds.loadGpu(); }) } )
+
     var oldMeans = means
     var batch = 1
     
@@ -158,7 +163,7 @@ object GpuKMeansBatch {
           println(s"Executing batch ${batch} for iteration $iteration ")
           batch += 1
           datasplit.cacheGpu(true)
-          timeit("Data loaded in GPU", { datasplit.loadGpu })
+          // timeit("Data loaded in GPU", { datasplit.loadGpu })
 
           // this gets distributed
           val centroidIndex = datasplit.mapExtFunc(func1,

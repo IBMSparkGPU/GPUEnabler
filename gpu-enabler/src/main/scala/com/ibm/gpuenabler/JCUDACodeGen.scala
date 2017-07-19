@@ -718,7 +718,8 @@ object JCUDACodeGen extends _Logging {
         |           int blockID, int[][] userGridSizes, int[][] userBlockSizes, int stages, int smSize) {
         |        inpitr = inp;
         |        numElements = size;
-        |        if (!((cached & 4) > 0)) hasNextLoop = ${cf.outputSize.getOrElse("numElements")};
+        |        if (!((cached & 4) > 0) && ${if (cf.funcName != "") true else false }) 
+        |          hasNextLoop = ${cf.outputSize.getOrElse("numElements")};
         |        else hasNextLoop = 0;
         |
         |        refs = inprefs;
@@ -811,7 +812,7 @@ object JCUDACodeGen extends _Logging {
 	|         enterLoop = false;
 	|         allocateMemory(null, cuStream);
 	|       } 
-	|  
+	|   
 	|       if (enterLoop){
         |         // Fill GPUInput/Direct Copy Host variables
         |         for(int i=0; inpitr.hasNext();i++) {

@@ -57,6 +57,8 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 
     val inexprEnc = inputEncoder.asInstanceOf[ExpressionEncoder[T]]
     val outexprEnc = outputEncoder.asInstanceOf[ExpressionEncoder[U]]
+    val outEnc = outexprEnc
+      .resolveAndBind(getAttributes(outputEncoder.schema))
 
     val childRDD = child.execute()
 
@@ -72,9 +74,6 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       cached |= (if(DScache.contains(logPlans(1))) 2 else 0)
       cached |= (if(GPUSparkEnv.get.gpuMemoryManager.cachedGPUOnlyDS.contains(logPlans(0))) 4 else 0)
 
-      // Generate the JCUDA program to be executed and obtain the iterator object
-      val jcudaIterator = JCUDACodeGen.generate(inputSchema,
-                     outputSchema,cf,constArgs, outputArraySizes)
       val list = new mutable.ListBuffer[InternalRow]
 
       // Get hold of hashmap for this Plan to store the GPU pointers from output parameters
@@ -112,6 +111,7 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       val imgpuPtrs: java.util.List[java.util.Map[String, CachedGPUMeta]] =
 		List(curPlanPtrs, childPlanPtrs).asJava
 
+      var skipExecution = false
       // Retrieve the partition size and cache it if the child logical plan is cached.
       val dataSize = if (!((cached & 2) > 0) || childPlanPtrs.isEmpty) {
         var count = 0
@@ -127,45 +127,64 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
         GPUSparkEnv.get.cachedDSPartSize.getOrElseUpdate((logPlans(1), partNum), count)
         count
       } else {
+        // handle special case of loadGPU; Since data is already in GPU, do nothing
+        if (cf.funcName == "") {
+          skipExecution = true
+        }
+
         // This logical plan is expected to be in cached; else something is wrong 
         // and it will assert out;
         GPUSparkEnv.get.cachedDSPartSize.getOrElse((logPlans(1), partNum), 0)
       }
 
-      assert(dataSize > 0)
+      if (!skipExecution) {
+        // Generate the JCUDA program to be executed and obtain the iterator object
+        val jcudaIterator = JCUDACodeGen.generate(inputSchema,
+                     outputSchema,cf,constArgs, outputArraySizes)
 
-      // cache the partition size if this plan is cached in GPU
-      if ((cached & 1) > 0) {
-          GPUSparkEnv.get.cachedDSPartSize.put((logPlans(0), partNum), {
-              dataSize
-        })
-      }
+        assert(dataSize > 0)
 
-      // Compute the GPU Grid Dimensions based on the input data size
-      // For user provided Dimensions; retrieve it along with the 
-      // respective stage information.
-      val (stages, userGridSizes, userBlockSizes, sharedMemory) =
-              JCUDACodeGen.getUserDimensions(cf, dataSize)
+        // cache the partition size if this plan is cached in GPU
+        if ((cached & 1) > 0) {
+            GPUSparkEnv.get.cachedDSPartSize.put((logPlans(0), partNum), {
+                dataSize
+          })
+        }
 
-      // Initialize the auto generated code's iterator
-      jcudaIterator.init(list.toIterator.asJava, constArgs,
-                dataSize, cached, imgpuPtrs, partNum,
-                userGridSizes, userBlockSizes, stages, sharedMemory)
+        // Compute the GPU Grid Dimensions based on the input data size
+        // For user provided Dimensions; retrieve it along with the 
+        // respective stage information.
+        val (stages, userGridSizes, userBlockSizes, sharedMemory) =
+                JCUDACodeGen.getUserDimensions(cf, dataSize)
 
-      // Triggers execution
-      jcudaIterator.hasNext()
+        // Initialize the auto generated code's iterator
+        jcudaIterator.init(list.toIterator.asJava, constArgs,
+                  dataSize, cached, imgpuPtrs, partNum,
+                  userGridSizes, userBlockSizes, stages, sharedMemory)
 
-      list.clear()
+        // Triggers execution
+        jcudaIterator.hasNext()
 
-      val outEnc = outexprEnc
-        .resolveAndBind(getAttributes(outputEncoder.schema))
+        list.clear()
 
-      new Iterator[InternalRow] {
-        override def hasNext: Boolean = jcudaIterator.hasNext()
+        val outEnc = outexprEnc
+          .resolveAndBind(getAttributes(outputEncoder.schema))
 
-        override def next: InternalRow =
-          InternalRow(outEnc
-             .fromRow(jcudaIterator.next()))
+        new Iterator[InternalRow] {
+          override def hasNext: Boolean = jcudaIterator.hasNext()
+
+          override def next: InternalRow =
+            InternalRow(outEnc
+               .fromRow(jcudaIterator.next()))
+        }
+      } else {
+        new Iterator[InternalRow] {
+          override def hasNext: Boolean = false
+
+          override def next: InternalRow =
+            InternalRow(outEnc
+              .fromRow(null))
+        }
       }
     }
   }
