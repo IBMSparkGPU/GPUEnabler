@@ -53,16 +53,19 @@ object GpuDSArrayMult {
 
     // 2. Sample Reduce Operation - Sum of all elements in the array
     val dimensions = (size: Long, stage: Int) => stage match {
-      case 0 => (64, 256)
-      case 1 => (1, 1)
+      case 0 => (64, 256, 1, 1, 1, 1)
+      case 1 => (1, 1, 1, 1, 1, 1)
     }
+
+    val gpuParams = gpuParameters(dimensions)
+
     val sumFunc = DSCUDAFunction(
       "suml",
       Array("value"),
       Array("value"),
       ptxURL,
       Some((size: Long) => 2),
-      Some(dimensions), outputSize=Some(1))
+      Some(gpuParams), outputSize=Some(1))
 
     val results2 = dataPts
           .mapExtFunc(_ * 2, mulFunc)

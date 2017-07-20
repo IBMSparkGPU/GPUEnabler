@@ -42,6 +42,7 @@ case class PlusMinus(base: Double, deviation: Float)
 case class FloatRange(a: Double, b: Float)
 case class IntDataPoint(x: Array[Int], y: Int)
 case class DataPoint(x: Array[Double], y: Double)
+case class MatrixData(M: Long, N: Long)
 
 class CUDADSFunctionSuite extends FunSuite {
 
@@ -283,6 +284,9 @@ class CUDADSFunctionSuite extends FunSuite {
     import spark.implicits._
     val manager =  GPUSparkEnv.get.cudaManager
     if (manager != null) {
+
+      val dimensions = (size: Long, stage: Int) => (((size + 32 * 8 - 1) / (32 * 8)).toInt, 32, 1, 1, 1, 1);
+      val gpuParams = gpuParameters(dimensions)
       // we only use size/8 GPU threads and run block on a single warp
       val function = DSCUDAFunction(
         "blockXOR",
@@ -290,7 +294,7 @@ class CUDADSFunctionSuite extends FunSuite {
         Array("value"),
         ptxURL,
         None,
-        Some((size: Long, stage: Int) => (((size + 32 * 8 - 1) / (32 * 8)).toInt, 32)))
+        Some(gpuParams))
       
       val n = 10
       
@@ -323,16 +327,17 @@ class CUDADSFunctionSuite extends FunSuite {
     val manager =  GPUSparkEnv.get.cudaManager
     if (manager != null) {
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (64, 256)
-        case 1 => (1, 1)
+        case 0 => (64, 256, 1, 1, 1, 1)
+        case 1 => (1, 1, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val function = DSCUDAFunction(
         "sum",
         Array("value"),
         Array("value"),
         ptxURL,
         Some((size: Long) => 2),
-        Some(dimensions), outputSize = Some(1))
+        Some(gpuParams), outputSize = Some(1))
       val n = 30000
 
       try {
@@ -381,16 +386,17 @@ class CUDADSFunctionSuite extends FunSuite {
     val manager =  GPUSparkEnv.get.cudaManager
     if (manager != null) {
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (64, 256)
-        case 1 => (1, 1)
+        case 0 => (64, 256, 1, 1, 1, 1)
+        case 1 => (1, 1, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val reduceFunction = DSCUDAFunction(
         "sum",
         Array("value"),
         Array("value"),
         ptxURL,
         Some((size: Long) => 2),
-        Some(dimensions), outputSize=Some(1))
+        Some(gpuParams), outputSize=Some(1))
 
       val n = 10
       try {
@@ -418,16 +424,17 @@ class CUDADSFunctionSuite extends FunSuite {
         ptxURL)
 
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (64, 256)
-        case 1 => (1, 1)
+        case 0 => (64, 256, 1, 1, 1, 1)
+        case 1 => (1, 1, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val reduceFunction = DSCUDAFunction(
         "suml",
         Array("value"),
         Array("value"),
         ptxURL,
         Some((size: Long) => 2),
-        Some(dimensions), outputSize=Some(1))
+        Some(gpuParams), outputSize=Some(1))
 
       val n = 10
       try {
@@ -481,16 +488,17 @@ class CUDADSFunctionSuite extends FunSuite {
         ptxURL)
 
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (64, 256)
-        case 1 => (1, 1)
+        case 0 => (64, 256, 1, 1, 1, 1)
+        case 1 => (1, 1, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val reduceFunction = DSCUDAFunction(
         "suml",
         Array("value"),
         Array("value"),
         ptxURL,
         Some((size: Long) => 2),
-        Some(dimensions), outputSize=Some(1))
+        Some(gpuParams), outputSize=Some(1))
 
       val n = 100
       try {
@@ -518,16 +526,17 @@ class CUDADSFunctionSuite extends FunSuite {
         ptxURL)
 
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (64, 256)
-        case 1 => (1, 1)
+        case 0 => (64, 256, 1, 1, 1, 1)
+        case 1 => (1, 1, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val reduceFunction = DSCUDAFunction(
         "suml",
         Array("value"),
         Array("value"),
         ptxURL,
         Some((size: Long) => 2),
-        Some(dimensions), outputSize=Some(1))
+        Some(gpuParams), outputSize=Some(1))
 
       val n: Long = 100000000L
       try {
@@ -557,16 +566,17 @@ class CUDADSFunctionSuite extends FunSuite {
         ptxURL)
 
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (64, 256)
-        case 1 => (1, 1)
+        case 0 => (64, 256, 1, 1, 1, 1)
+        case 1 => (1, 1, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val reduceFunction = DSCUDAFunction(
         "suml",
         Array("value"),
         Array("value"),
         ptxURL,
         Some((size: Long) => 2),
-        Some(dimensions), outputSize=Some(1))
+        Some(gpuParams), outputSize=Some(1))
 
       val n = 100
       try {
@@ -623,16 +633,17 @@ class CUDADSFunctionSuite extends FunSuite {
         ptxURL)
 
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (64, 256)
-        case 1 => (1, 1)
+        case 0 => (64, 256, 1, 1, 1, 1)
+        case 1 => (1, 1, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val reduceFunction = DSCUDAFunction(
         "suml",
         Array("value"),
         Array("value"),
         ptxURL,
         Some((size: Long) => 2),
-        Some(dimensions), outputSize=Some(1))
+        Some(gpuParams), outputSize=Some(1))
 
       val n = 100
       try {
@@ -716,16 +727,17 @@ class CUDADSFunctionSuite extends FunSuite {
         Array.tabulate(x.length)(i => x(i) + y(i))
 
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (64, 256)
-        case 1 => (1, 1)
+        case 0 => (64, 256, 1, 1, 1, 1)
+        case 1 => (1, 1, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val reduceFunction = DSCUDAFunction(
         "intArraySum",
         Array("value"),
         Array("value"),
         ptxURL,
         Some((size: Long) => 2),
-        Some(dimensions), outputSize=Some(1))
+        Some(gpuParams), outputSize=Some(1))
 
       val n = 8
       val dataset = List(Array.range(0, n), Array.range(2*n, 3*n))
@@ -758,9 +770,10 @@ class CUDADSFunctionSuite extends FunSuite {
           Array("value"),
           ptxURL))
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (64, 256)
-        case 1 => (1, 1)
+        case 0 => (64, 256, 1, 1, 1, 1)
+        case 1 => (1, 1, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val reduceFunction = spark.sparkContext.broadcast(
         DSCUDAFunction(
           "DataPointReduce",
@@ -768,7 +781,7 @@ class CUDADSFunctionSuite extends FunSuite {
           Array("value"),
           ptxURL,
           Some((size: Long) => 2),
-          Some(dimensions), outputSize=Some(1)))
+          Some(gpuParams), outputSize=Some(1)))
       val n = 5
       val w = Array.fill(n)(2.0)
       val dataset = List(DataPoint(Array( 1.0, 2.0, 3.0, 4.0, 5.0), -1),
@@ -819,8 +832,9 @@ class CUDADSFunctionSuite extends FunSuite {
       val threads = 1024
       val blocks = min((N + threads- 1) / threads, 1024)
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (blocks, threads)
+        case 0 => (blocks, threads, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val reduceFunction = spark.sparkContext.broadcast(
         DSCUDAFunction(
           "blockReduce",
@@ -828,7 +842,7 @@ class CUDADSFunctionSuite extends FunSuite {
           Array("value"),
           ptxURL,
           Some((size: Long) => 1),
-          Some(dimensions), outputSize=Some(1)))
+          Some(gpuParams), outputSize=Some(1)))
 
       def generateData: Array[DataPoint] = {
         def generatePoint(i: Int): DataPoint = {
@@ -1006,16 +1020,17 @@ test("Run map + map + map + reduce on datasets - Cached multiple partitions", GP
         ptxURL)
 
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (64, 256)
-        case 1 => (1, 1)
+        case 0 => (64, 256, 1, 1, 1, 1)
+        case 1 => (1, 1, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val reduceFunction = DSCUDAFunction(
         "suml",
         Array("value"),
         Array("value"),
         ptxURL,
         Some((size: Long) => 2),
-        Some(dimensions), outputSize=Some(1))
+        Some(gpuParams), outputSize=Some(1))
 
       val n = 100
       try {
@@ -1045,16 +1060,17 @@ test("Run map + map + map + reduce on datasets - Cached multiple partitions", GP
         ptxURL)
 
       val dimensions = (size: Long, stage: Int) => stage match {
-        case 0 => (64, 256)
-        case 1 => (1, 1)
+        case 0 => (64, 256, 1, 1, 1, 1)
+        case 1 => (1, 1, 1, 1, 1, 1)
       }
+      val gpuParams = gpuParameters(dimensions)
       val reduceFunction = DSCUDAFunction(
         "suml",
         Array("value"),
         Array("value"),
         ptxURL,
         Some((size: Long) => 2),
-        Some(dimensions), outputSize=Some(1))
+        Some(gpuParams), outputSize=Some(1))
 
       val n = 100
       try {
@@ -1072,6 +1088,37 @@ test("Run map + map + map + reduce on datasets - Cached multiple partitions", GP
     }
   }
 
+  test("Run matix multiplication", GPUTest) {
+    val spark = SparkSession.builder().master("local[*]").appName("test").config(conf).getOrCreate()
+    val manager =  GPUSparkEnv.get.cudaManager
+    if (manager != null) {
+      val dimensions = (size: Long, stage: Int) => stage match {
+        case 0 => (1, 3, 1, 3, 1, 1)
+      }
+      val gpuParams = gpuParameters(dimensions)
+      val MRFunction = DSCUDAFunction(
+        "MNKernel",
+        Array("M","N"),
+        Array("value"),
+        ptxURL,
+        Some((size: Long) => 1),
+        Some(gpuParams))
+
+      try {
+        import spark.implicits._
+        val data = spark.range(1, 10, 1, 1).map(x => MatrixData(x, x)).cache()
+        data.count()
+        val output = data.mapExtFunc((x: MatrixData) => x.M, MRFunction, Array(3)).collect()
+        val expected_values : Array[Long] = Array(30,36,42,66,81,96,102,126,150)
+        assert(output.sameElements(expected_values))
+      } finally {
+        spark.stop
+      }
+    } else {
+      info("No CUDA devices, so skipping the test.")
+    }
+  }
+  
 }
 
 

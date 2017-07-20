@@ -70,13 +70,20 @@ object perfDebug {
       Array("value"),
       ptxURL1)
 
+    val dimensions2 = (size: Long, stage: Int) => stage match {
+      case 0 => (64, 256, 1, 1, 1, 1)
+      case 1 => (1, 1, 1, 1, 1, 1)
+    }
+
+    val gpuParams = gpuParameters(dimensions2)
+
     val dsreduceFunction = DSCUDAFunction(
       "suml",
       Array("value"),
       Array("value"),
       ptxURL1,
       Some((size: Long) => 2),
-      Some(dimensions), outputSize=Some(1))
+      Some(gpuParams), outputSize=Some(1))
 
     val rd = spark.range(1, n+1, 1, part).cache()
     rd.count()

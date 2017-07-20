@@ -386,7 +386,7 @@ object CUDARDDImplicits {
       val reducePartition: (TaskContext, Iterator[T]) => Option[T] =
         (ctx: TaskContext, data: Iterator[T]) => {
           // Handle partitions with no data
-          if (data.length > 0) {
+          if (!(data.isEmpty)) {
             data match {
               case col: HybridIterator[T] =>
                 if (col.numElements != 0) {

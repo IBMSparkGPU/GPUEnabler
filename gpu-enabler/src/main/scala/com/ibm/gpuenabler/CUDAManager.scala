@@ -100,10 +100,10 @@ private class CUDAManager {
         } else {
           moduleBinaryData = ptxString.getBytes()
         }
- 
-        val moduleBinaryData0 = new Array[Byte](moduleBinaryData.length + 1)
-        System.arraycopy(moduleBinaryData, 0, moduleBinaryData0, 0, moduleBinaryData.length)
-        moduleBinaryData0(moduleBinaryData.length) = 0
+        val moduleBinaryDataLength = moduleBinaryData.length
+        val moduleBinaryData0 = new Array[Byte](moduleBinaryDataLength + 1)
+        System.arraycopy(moduleBinaryData, 0, moduleBinaryData0, 0, moduleBinaryDataLength)
+        moduleBinaryData0(moduleBinaryDataLength) = 0
         val module = new CUmodule
         JCudaDriver.cuModuleLoadData(module, moduleBinaryData0)
         module
