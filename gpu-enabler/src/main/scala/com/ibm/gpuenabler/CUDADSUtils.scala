@@ -62,6 +62,14 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 
     val childRDD = child.execute()
 
+    // TODO: Possibility for caching for every LP
+    val now3 = System.nanoTime
+    val listCount = childRDD.mapPartitionsWithIndex{ (partNum, iter) => {
+      Iterator(Map(partNum -> iter.length))
+    }}.reduce(_ ++ _)
+    val ms3 = (System.nanoTime - now3) / 1000000
+    println("%s Elapsed time: %d ms".format("GET SIZE ", ms3))
+
     childRDD.mapPartitionsWithIndex{ (partNum, iter) =>
 
       // Differentiate cache by setting:
@@ -112,17 +120,11 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 		List(curPlanPtrs, childPlanPtrs).asJava
 
       var skipExecution = false
+
       // Retrieve the partition size and cache it if the child logical plan is cached.
       val dataSize = if (!((cached & 2) > 0) || childPlanPtrs.isEmpty) {
-        var count = 0
-        iter.foreach(x => {
-          count += 1
-          val value = x.get(0, inputSchema)
-          if (!value.isInstanceOf[UnsafeRow])
-            list += inexprEnc.toRow(value.asInstanceOf[T]).copy()
-          else
-            list += value.asInstanceOf[InternalRow]
-        })
+        var count = listCount.getOrElse(partNum, 1)
+
         // TODO: caching required only if the child logical plan is cached.
         GPUSparkEnv.get.cachedDSPartSize.getOrElseUpdate((logPlans(1), partNum), count)
         count
@@ -151,6 +153,8 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
           })
         }
 
+        println(s"dataSize $dataSize")
+
         // Compute the GPU Grid Dimensions based on the input data size
         // For user provided Dimensions; retrieve it along with the 
         // respective stage information.
@@ -158,9 +162,9 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
                 JCUDACodeGen.getUserDimensions(cf, dataSize)
 
         // Initialize the auto generated code's iterator
-        jcudaIterator.init(list.toIterator.asJava, constArgs,
+         jcudaIterator.init[T](iter.asJava, constArgs,
                   dataSize, cached, imgpuPtrs, partNum,
-                  userGridSizes, userBlockSizes, stages, sharedMemory)
+                  userGridSizes, userBlockSizes, stages, sharedMemory, inputEncoder)
 
         // Triggers execution
         jcudaIterator.hasNext()

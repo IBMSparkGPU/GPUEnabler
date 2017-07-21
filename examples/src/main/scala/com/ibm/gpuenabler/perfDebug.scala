@@ -90,7 +90,7 @@ object perfDebug {
 
     val data = rd.cacheGpu(true)
     // Load the data to GPU
-    data.loadGpu()
+    timeit("Data load in GPU", { data.loadGpu()})
 
     timeit("DS: All cached", {
       val mapDS = data.mapExtFunc(2 * _, dsmapFunction).cacheGpu()

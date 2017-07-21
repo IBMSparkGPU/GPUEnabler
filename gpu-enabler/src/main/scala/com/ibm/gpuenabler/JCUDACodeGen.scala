@@ -223,7 +223,7 @@ object JCUDACodeGen extends _Logging {
         else
           s"""
              |if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
-             |  ${hostVariableName}.put$boxType(${ctx.getValue("r", dataType, inSchemaIdx.toString)});
+             | ${hostVariableName}.put$boxType(${ctx.getValue("r", dataType, inSchemaIdx.toString)});
              |} 
            """.stripMargin
       }
@@ -646,6 +646,9 @@ object JCUDACodeGen extends _Logging {
         |import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
         |import com.ibm.gpuenabler.JCUDACodegenIterator;
         |import org.apache.spark.unsafe.types.UTF8String;
+        |import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder;
+        |import org.apache.spark.sql.Encoder;
+        |import org.apache.spark.sql.types.StructType;
         |
         |import java.nio.*;
         |import java.util.Iterator;
@@ -687,6 +690,7 @@ object JCUDACodeGen extends _Logging {
         |    private List<Map<String,CachedGPUMeta>> gpuPtrs;
         |    private Map<String, CachedGPUMeta> inputCMap;
         |    private Map<String, CachedGPUMeta> outputCMap;
+        |    private Encoder<T> inpEnc;
         |
         |    private int[][] blockSizeX;
         |    private int[][] gridSizeX;
@@ -713,9 +717,10 @@ object JCUDACodeGen extends _Logging {
         |        arrayWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeArrayWriter();
         |    }
         |
-        |    public void init(Iterator<InternalRow> inp, Object inprefs[], 
+        |    public <T> void init(Iterator<InternalRow> inp, Object inprefs[], 
         |           int size, int cached, List<Map<String,CachedGPUMeta>> gpuPtrs,
-        |           int blockID, int[][] userGridSizes, int[][] userBlockSizes, int stages, int smSize) {
+        |           int blockID, int[][] userGridSizes, int[][] userBlockSizes, int stages, int smSize,
+        |           Encoder<T> inpEnc) {
         |        inpitr = inp;
         |        numElements = size;
         |        if (!((cached & 4) > 0) && ${if (cf.funcName != "") true else false }) 
@@ -724,6 +729,7 @@ object JCUDACodeGen extends _Logging {
         |
         |        refs = inprefs;
         |
+        |        this.inpEnc = inpEnc;
         |        this.cached = cached;
         |        this.gpuPtrs = gpuPtrs;
         |        this.blockID = blockID;
@@ -815,11 +821,18 @@ object JCUDACodeGen extends _Logging {
 	|   
 	|       if (enterLoop){
         |         // Fill GPUInput/Direct Copy Host variables
+        |         long now = System.nanoTime();
+        |         
+        |         ExpressionEncoder<T> inExpr = (ExpressionEncoder<T>)inpEnc;
+        |         StructType inputSchema = inpEnc.schema();         
+        |         
         |         for(int i=0; inpitr.hasNext();i++) {
-        |            InternalRow r = (InternalRow) inpitr.next();
+        |            Object obj = ((InternalRow)inpitr.next()).get(0, inputSchema);
+        |            InternalRow r = ((InternalRow) inExpr.toRow(obj)).copy();
         |            if (i == 0)  allocateMemory(r, cuStream);
         |            ${getStmt(variables,List("readFromInternalRow"),"")}
         |         }
+        |         System.out.println("INSIDE loop " + (System.nanoTime() - now) / 1000000);
 	|       }
         |  
         |       ${getStmt(variables,List("readFromConstArray"),"")}
@@ -897,23 +910,22 @@ object JCUDACodeGen extends _Logging {
     val fpath = if (cf.funcName != "") s"/tmp/GeneratedCode_${cf.funcName}.java"
 		else "/tmp/GeneratedCode_autoload.java"
 
-    if(debugMode == 2)
+    if(debugMode == 2) {
       println(s"Compile Existing File - ${fpath}")
+      val _codeBody = generateFromFile(fpath).filter(!_.contains("REMOVE")).map(x => x+"\n").mkString
+      val code = new CodeAndComment(_codeBody, ctx.getPlaceHolderToComments())
 
-    val _codeBody = if(debugMode == 2)
-      generateFromFile(fpath)
-    else if (debugMode == 1) {
-      val code = new CodeAndComment(codeBody,ctx.getPlaceHolderToComments())
-      writeToFile(code, fpath)
-      codeBody
+      CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[JCUDACodegenIterator]
     } else {
-      codeBody
-    }
-
-    val code = _codeBody.split("\n").filter(!_.contains("REMOVE")).map(_ + "\n").mkString
+      if (debugMode == 1) {
+        val code = new CodeAndComment(codeBody,ctx.getPlaceHolderToComments())
+        writeToFile(code, fpath)
+      }
+      val code = codeBody.split("\n").filter(!_.contains("REMOVE")).map(_ + "\n").mkString
       val p = cache.get(new CodeAndComment(code, ctx.getPlaceHolderToComments())).
         generate(ctx.references.toArray).asInstanceOf[JCUDACodegenIterator]
-    p
+      p
+    }
   }
 
   private val cache = CacheBuilder.newBuilder()
@@ -933,8 +945,13 @@ object JCUDACodeGen extends _Logging {
     pw.close()
   }
 
+/*
   def generateFromFile(fpath : String) : String = {
     scala.io.Source.fromFile(fpath).getLines().mkString
+  }
+*/
+  def generateFromFile(fpath : String) : Iterator[String] = {
+    scala.io.Source.fromFile(fpath).getLines() //.mkString
   }
 }
 
