@@ -192,7 +192,7 @@ object JCUDACodeGen extends _Logging {
             | $deviceVariableName = new CUdeviceptr();
             | cuMemAlloc($deviceVariableName, $size);
             | ${if (is(GPUOUTPUT)) s"cuMemsetD32Async($deviceVariableName, 0, $size / 4, cuStream);" else ""}
-            |} else { 
+            |} else {
             | $deviceVariableName = (CUdeviceptr)((CachedGPUMeta)inputCMap.get(blockID+"gpuOutputDevice_${colName}")).ptr();
             |} 
            """.stripMargin
@@ -832,7 +832,7 @@ object JCUDACodeGen extends _Logging {
         |            if (i == 0)  allocateMemory(r, cuStream);
         |            ${getStmt(variables,List("readFromInternalRow"),"")}
         |         }
-        |         System.out.println("INSIDE loop " + (System.nanoTime() - now) / 1000000);
+        |
 	|       }
         |  
         |       ${getStmt(variables,List("readFromConstArray"),"")}

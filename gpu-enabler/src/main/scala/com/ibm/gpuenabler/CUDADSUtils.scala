@@ -33,9 +33,10 @@ import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import java.util.concurrent.ConcurrentHashMap
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.scheduler.{SparkListener, SparkListenerJobStart, SparkListenerJobEnd}
+import org.apache.spark.broadcast.Broadcast
 
 case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
-                            outputArraySizes: Array[Int],
+                            outputArraySizes: Array[Int], partSizes: Broadcast[Map[Int, Int]],
                             child: SparkPlan,
                             inputEncoder: Encoder[T], outputEncoder: Encoder[U],
                             outputObjAttr: Attribute,
@@ -61,14 +62,6 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       .resolveAndBind(getAttributes(outputEncoder.schema))
 
     val childRDD = child.execute()
-
-    // TODO: Possibility for caching for every LP
-    val now3 = System.nanoTime
-    val listCount = childRDD.mapPartitionsWithIndex{ (partNum, iter) => {
-      Iterator(Map(partNum -> iter.length))
-    }}.reduce(_ ++ _)
-    val ms3 = (System.nanoTime - now3) / 1000000
-    println("%s Elapsed time: %d ms".format("GET SIZE ", ms3))
 
     childRDD.mapPartitionsWithIndex{ (partNum, iter) =>
 
@@ -121,22 +114,10 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 
       var skipExecution = false
 
-      // Retrieve the partition size and cache it if the child logical plan is cached.
-      val dataSize = if (!((cached & 2) > 0) || childPlanPtrs.isEmpty) {
-        var count = listCount.getOrElse(partNum, 1)
 
-        // TODO: caching required only if the child logical plan is cached.
-        GPUSparkEnv.get.cachedDSPartSize.getOrElseUpdate((logPlans(1), partNum), count)
-        count
-      } else {
-        // handle special case of loadGPU; Since data is already in GPU, do nothing
-        if (cf.funcName == "") {
-          skipExecution = true
-        }
-
-        // This logical plan is expected to be in cached; else something is wrong 
-        // and it will assert out;
-        GPUSparkEnv.get.cachedDSPartSize.getOrElse((logPlans(1), partNum), 0)
+      // handle special case of loadGPU; Since data is already in GPU, do nothing
+      if (cf.funcName == "") {
+        skipExecution = true
       }
 
       if (!skipExecution) {
@@ -144,16 +125,8 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
         val jcudaIterator = JCUDACodeGen.generate(inputSchema,
                      outputSchema,cf,constArgs, outputArraySizes)
 
+        val dataSize = partSizes.value.getOrElse(partNum, 1)
         assert(dataSize > 0)
-
-        // cache the partition size if this plan is cached in GPU
-        if ((cached & 1) > 0) {
-            GPUSparkEnv.get.cachedDSPartSize.put((logPlans(0), partNum), {
-                dataSize
-          })
-        }
-
-        println(s"dataSize $dataSize")
 
         // Compute the GPU Grid Dimensions based on the input data size
         // For user provided Dimensions; retrieve it along with the 
@@ -168,8 +141,6 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 
         // Triggers execution
         jcudaIterator.hasNext()
-
-        list.clear()
 
         val outEnc = outexprEnc
           .resolveAndBind(getAttributes(outputEncoder.schema))
@@ -200,10 +171,11 @@ object MAPGPU
                                       func: DSCUDAFunction,
                                       args : Array[Any],
                                       outputArraySizes: Array[Int],
+                                      partSizes: Broadcast[Map[Int, Int]],
                                       child: LogicalPlan) : LogicalPlan = {
     val deserialized = CatalystSerde.deserialize[T](child)
     val mapped = MAPGPU(
-      func, args, outputArraySizes,
+      func, args, outputArraySizes, partSizes,
       deserialized,
       implicitly[Encoder[T]],
       implicitly[Encoder[U]],
@@ -217,9 +189,10 @@ object MAPGPU
 
 object LOADGPU
 {
-  def apply[T: Encoder](child: LogicalPlan) : LogicalPlan = {
+  def apply[T: Encoder](partSizes: Broadcast[Map[Int, Int]], child: LogicalPlan) : LogicalPlan = {
     val deserialized = CatalystSerde.deserialize[T](child)
     val mapped = LOADGPU(
+      partSizes,
       deserialized,
       implicitly[Encoder[T]],
       CatalystSerde.generateObjAttr[T]
@@ -229,7 +202,7 @@ object LOADGPU
   }
 }
 
-case class LOADGPU[T: Encoder](child: LogicalPlan,
+case class LOADGPU[T: Encoder](partSizes: Broadcast[Map[Int, Int]], child: LogicalPlan,
                                inputEncoder: Encoder[T],
                                outputObjAttr: Attribute)
   extends ObjectConsumer with ObjectProducer {
@@ -239,7 +212,7 @@ case class LOADGPU[T: Encoder](child: LogicalPlan,
 
 case class MAPGPU[T: Encoder, U : Encoder](func: DSCUDAFunction,
 			   args : Array[Any],
-			   outputArraySizes: Array[Int],
+			   outputArraySizes: Array[Int], partSizes: Broadcast[Map[Int, Int]],
 			   child: LogicalPlan,
 			   inputEncoder: Encoder[T], outputEncoder: Encoder[U],
 			   outputObjAttr: Attribute)
@@ -250,7 +223,7 @@ case class MAPGPU[T: Encoder, U : Encoder](func: DSCUDAFunction,
 
 object GPUOperators extends Strategy {
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-    case MAPGPU(cf, args, outputArraySizes, child,inputEncoder, outputEncoder,
+    case MAPGPU(cf, args, outputArraySizes, partSizes, child,inputEncoder, outputEncoder,
          outputObjAttr) =>
       // Store the logical plan UID and pass it to physical plan as 
       // cached it done with logical plan UID.
@@ -269,9 +242,9 @@ object GPUOperators extends Strategy {
         GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlavesAuto(logPlans(1))
       }
 
-      MAPGPUExec(cf, args, outputArraySizes, planLater(child),
+      MAPGPUExec(cf, args, outputArraySizes, partSizes, planLater(child),
         inputEncoder, outputEncoder, outputObjAttr, logPlans) :: Nil
-    case LOADGPU(child, inputEncoder, outputObjAttr) =>
+    case LOADGPU(partSizes, child, inputEncoder, outputObjAttr) =>
       val logPlans = new Array[String](2)
       val modChildPlan = child match {
         case DeserializeToObject(_, _, lp) => lp
@@ -281,7 +254,7 @@ object GPUOperators extends Strategy {
       logPlans(1) = md5HashObj(modChildPlan)
 
       val cf = DSCUDAFunction("",null,null,"")
-      MAPGPUExec(cf, null, null, planLater(child),
+      MAPGPUExec(cf, null, null, partSizes, planLater(child),
         inputEncoder, inputEncoder, outputObjAttr, logPlans) :: Nil
     case _ => Nil
   }
@@ -331,6 +304,30 @@ case class DSCUDAFunction(
   */
 object CUDADSImplicits {
   implicit class CUDADSFuncs[T: Encoder](ds: _ds[T]) extends Serializable {
+  /** 
+    * getPartSizes: Helper routine to get Partition Size & add broadcast it.
+    * Getting the partition size right before MAPGPU operation 
+    * improves performance.
+    */
+    def getPartSizes: Broadcast[Map[Int, Int]] = {
+      val execPlan = ds.queryExecution.executedPlan
+      val logPlan = ds.queryExecution.optimizedPlan match {
+        case SerializeFromObject(_, lp) => lp
+        case _ => ds.queryExecution.optimizedPlan
+      }
+
+      val partSizes: Broadcast[Map[Int, Int]] = logPlan match {
+        case MAPGPU(_, _, _, partSize, _, _, _, _) => 
+          partSize
+        case _ =>
+          val partSize: Map[Int, Int] = execPlan.execute().mapPartitionsWithIndex {
+            (partNum, iter) => Iterator(Map(partNum -> iter.length))
+          }.reduce(_ ++ _)
+          ds.sparkSession.sparkContext.broadcast(partSize)
+      }
+      partSizes
+    }
+
     /**
       * Return a new Dataset by applying a function to all elements of this Dataset.
       *
@@ -353,7 +350,7 @@ object CUDADSImplicits {
                           outputArraySizes: Array[Int] = Array.empty): Dataset[U] =  {
 
       DS[U](ds.sparkSession,
-          MAPGPU[T, U](cf, args, outputArraySizes,
+          MAPGPU[T, U](cf, args, outputArraySizes, getPartSizes,
             getLogicalPlan(ds)))
     }
 
@@ -378,20 +375,18 @@ object CUDADSImplicits {
                           outputArraySizes: Array[Int] = Array.empty): T =  {
 
       val ds1 = DS[T](ds.sparkSession,
-        MAPGPU[T, T](cf, args, outputArraySizes,
+        MAPGPU[T, T](cf, args, outputArraySizes, getPartSizes,
           getLogicalPlan(ds)))
 
       ds1.reduce(func)
     }
 
     /**
-      * Cache the child plan and 
-      * Trigger an action on this Dataset so that data is loaded into GPU.
-      * 
-      * @return Return the result after performing a count operation
-      *         on this Dataset
+      * Load & Cache the partitions of the Dataset in GPU.
+      *
+      * @return Returns the same Dataset after performing the operation
       */
-    def loadGpu(): Long =  {
+    def loadGpu(): Dataset[T] =  {
       // Enable Caching on the current Dataset
       val logPlan = ds.queryExecution.optimizedPlan match {
         case SerializeFromObject(_, lp) => lp
@@ -401,20 +396,21 @@ object CUDADSImplicits {
 
       // Create a new Dataset to load the data into GPU
       val ds1 = DS[T](ds.sparkSession,
-        LOADGPU[T](getLogicalPlan(ds)))
+        LOADGPU[T](getPartSizes, getLogicalPlan(ds)))
 
       // trigger an action
       ds1.count()
+      ds1
     }
 
     /**
-      * This function is used to mark the respective Dataset's data to
-      * be cached in GPU for future computation rather than cleaning it
-      * up every time the DataSet is processed. 
-      * 
-      * By marking an DataSet to cache in GPU, huge performance gain can
-      * be achieved as data movement between CPU memory and GPU 
-      * memory is considered costly.
+      * Mark the Dataset's partitions to be cached in GPU.
+      * Unmarked Dataset partitions will be cleaned up on every Job Completion.
+      *
+      * @param onlyGPU Boolean value to indicate partitions will be used only inside GPU
+      *                so that copy from GPU to Host will be skipped during Job execution.
+      *                Boost performance but to be used with caution on need basis.
+      * @return Returns the same Dataset after performing the operation
       */
     def cacheGpu(onlyGPU: Boolean = false): Dataset[T] = {
       val logPlan = ds.queryExecution.optimizedPlan match {
@@ -426,8 +422,9 @@ object CUDADSImplicits {
     }
 
     /**
-      * This function is used to clean up all the caches in GPU held
-      * by the respective DataSet on the various partitions.
+      * Unloads the Dataset's partitions that were cached earlier in GPU.
+      *
+      * @return Returns the same Dataset after performing the operation
       */
     def unCacheGpu(): Dataset[T] = {
       val logPlan = ds.queryExecution.optimizedPlan match {

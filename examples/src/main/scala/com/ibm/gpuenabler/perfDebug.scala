@@ -94,31 +94,42 @@ object perfDebug {
 
     timeit("DS: All cached", {
       val mapDS = data.mapExtFunc(2 * _, dsmapFunction).cacheGpu()
-      val output = mapDS.reduceExtFunc(_ + _, dsreduceFunction)
+      val mapDS1 = mapDS.mapExtFunc(2 * _, dsmapFunction).cacheGpu()
+      val mapDS2 = mapDS1.mapExtFunc(2 * _, dsmapFunction).cacheGpu()
+      val output = mapDS2.reduceExtFunc(_ + _, dsreduceFunction)
       mapDS.unCacheGpu()
+      mapDS1.unCacheGpu()
+      mapDS2.unCacheGpu()
       println("Output is " + output)
     })
+    data.unCacheGpu()
 
     val data111 = rd.cacheGpu(true)
     // Load the data to GPU
-    data111.loadGpu()
+    timeit("Data load in GPU", {data111.loadGpu() })
 
     timeit("DS: All cached GPUONLY", { 
+     1 to 10  foreach( idx => {
       val mapDS123 = data111.mapExtFunc(2 * _, dsmapFunction).cacheGpu(true)
       val output = mapDS123.reduceExtFunc(_ + _, dsreduceFunction)
       mapDS123.unCacheGpu()
-      println("Output is " + output)
+      println(s"$idx - Output is $output")
+      Thread.sleep(5000);
+     })
     })
+ 
+    data111.unCacheGpu()
 
     val data1 = rd
     // Load the data to GPU
-    data1.loadGpu()
+    timeit("Data load in GPU", {data1.loadGpu() })
 
     timeit("DS: No Cache", {
       val mapDS1 = data1.mapExtFunc(2 * _, dsmapFunction) 
       val output = mapDS1.reduceExtFunc(_ + _, dsreduceFunction)
       println("Output is " + output)
     })
+    data1.unCacheGpu()
 
     timeit("DS: CPU", {
       val output = data.map(2 * _).reduce(_ + _)
