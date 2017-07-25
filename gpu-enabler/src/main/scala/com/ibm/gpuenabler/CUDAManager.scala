@@ -17,21 +17,15 @@
  
 package com.ibm.gpuenabler
  
-import java.util.Date
 import java.net.URL
 import jcuda.Pointer
 import jcuda.driver.JCudaDriver._
-import jcuda.driver._
 import jcuda.driver.{CUdeviceptr, CUmodule, JCudaDriver}
 import jcuda.runtime.JCuda
 import org.apache.commons.io.IOUtils
 import org.slf4j.{Logger, LoggerFactory}
-import scala.collection.mutable
-import java.text.SimpleDateFormat
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.JavaConverters._
-import org.apache.spark.{SparkEnv, SparkException}
-
  
 private[gpuenabler] object CUDAManagerCachedModule {
   private val cachedModules = new ConcurrentHashMap[(String, Int), CUmodule].asScala
@@ -65,7 +59,7 @@ private class CUDAManager {
 
   def getModule(fname : String) : CUmodule = {
     val ptxURL = getClass.getResource(fname)
-    val clm = cachedLoadModule(Left(ptxURL));
+    val clm = cachedLoadModule(Left(ptxURL))
     clm
   }
  

@@ -19,8 +19,6 @@ package com.ibm.gpuenabler
 
 import java.io.{File, PrintWriter}
 import org.apache.spark.SparkEnv
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.types._
@@ -29,7 +27,8 @@ import com.google.common.cache.{CacheBuilder, CacheLoader}
 import org.apache.spark.sql.gpuenabler.CUDAUtils._
 
 /**
-  * Generates bytecode that evaluates a boolean [[Expression]] on a given input [[InternalRow]].
+  * Generates bytecode that can load/unload data & modules into GPU and 
+  * launch kernel in GPU using native CUDA libraries.
   */
 object JCUDACodeGen extends _Logging {
 
@@ -248,7 +247,7 @@ object JCUDACodeGen extends _Logging {
 
     // Retrieve the free variable passed from user program
     codeStmt += "readFromConstArray" -> {
-      if((is(CONST) && length != -1)) {
+      if(is(CONST) && length != -1) {
         s"""
          | for(int i = 0; i<$length; i++ ) {
          |   $hostVariableName.put$boxType((($javaType[])refs[$colName])[i]);
@@ -564,13 +563,12 @@ object JCUDACodeGen extends _Logging {
     val gpuGridSizeList = Array.fill(stagesCount,3){0}
     var gpuSharedMemory : Int = 0
 
-    (0 to stagesCount-1).foreach(idx => {
+    (0 until stagesCount).foreach(idx => {
       val (gpuGridSizeX : Int, gpuBlockSizeX: Int, gpuGridSizeY : Int, gpuBlockSizeY : Int, gpuGridSizeZ : Int, gpuBlockSizeZ: Int) = localCF.gpuParams match {
-        case Some(gpuParamsCompute) => {
+        case Some(gpuParamsCompute) =>
           gpuParamsCompute.dimensions match {
             case (computeDim) => computeDim(numElements, idx)
           }
-        }
         case None => (1,1,1,1,1,1) // Compute this in the executor nodes
       }
 
@@ -595,7 +593,7 @@ object JCUDACodeGen extends _Logging {
   def createAllInputVariables(inputSchema : StructType,
                               ctx : CodegenContext): Array[Variable] = {
     val variables = ArrayBuffer.empty[Variable]
-    (0 to inputSchema.length-1).map(inIdx => {
+    (0 until inputSchema.length).map(inIdx => {
       val fieldname = inputSchema(inIdx).name
       variables += Variable("in_"+fieldname,
         GPUINPUT | RDDOUTPUT,
@@ -945,13 +943,8 @@ object JCUDACodeGen extends _Logging {
     pw.close()
   }
 
-/*
-  def generateFromFile(fpath : String) : String = {
-    scala.io.Source.fromFile(fpath).getLines().mkString
-  }
-*/
   def generateFromFile(fpath : String) : Iterator[String] = {
-    scala.io.Source.fromFile(fpath).getLines() //.mkString
+    scala.io.Source.fromFile(fpath).getLines() 
   }
 }
 

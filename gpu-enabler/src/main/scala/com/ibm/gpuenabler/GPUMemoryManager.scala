@@ -20,9 +20,9 @@ package com.ibm.gpuenabler
 import jcuda.driver.CUdeviceptr
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.gpuenabler.CUDAUtils._
-import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap}
+import java.util.concurrent.ConcurrentHashMap
 import org.apache.spark.sql.gpuenabler.CUDAUtils._Logging
-import org.apache.spark.scheduler.{SparkListener, SparkListenerJobEnd, SparkListenerJobStart}
+import org.apache.spark.scheduler.{SparkListener, SparkListenerJobEnd}
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
@@ -146,12 +146,6 @@ private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv)
     case CacheGPUDSAuto(lp : String) =>
       cacheGPUAuto(lp)
       context.reply (true)
-    case UncacheGPUDSAuto(lp : String) =>
-      unCacheGPUAuto(lp)
-      context.reply (true)
-    case CacheGPUDSAuto(lp : String) =>
-      cacheGPUAuto(lp)
-      context.reply (true)
   }
 
   private def tell(slaveEndPointRef: _RpcEndpointRef, message: Any) {
@@ -194,7 +188,7 @@ private[gpuenabler] class GPUMemoryManagerSlaveEndPoint(val rpcEnv: _RpcEnv,
     case CacheGPUDS(lp : String, flag: Boolean) =>
       cacheGPU(lp, flag)
       context.reply (true)
-    case id : String =>
+    case _ : String =>
       context.reply (true)
   }
 }
@@ -237,15 +231,14 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
     cachedGPUDS -= lp
 
     cachedGPUPointersDS.get(lp) match {
-      case Some(partNumPtrs) => {
+      case Some(partNumPtrs) => 
         val gpuPtrs = partNumPtrs.values
         gpuPtrs.foreach((partPtr) => {
           partPtr.foreach{
-            case (name, obj) => if (obj.own) { GPUSparkEnv.get.cudaManager.freeGPUMemory(obj.ptr) }
+            case (_, obj) => if (obj.own) { GPUSparkEnv.get.cudaManager.freeGPUMemory(obj.ptr) }
           }
         })
         cachedGPUPointersDS -= lp
-      }
       case None =>
     }
   }
@@ -282,7 +275,6 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
     cachedGPURDDs -= rddId
     for ((name, ptr) <- cachedGPUPointers) {
       if (name.startsWith("rdd_" + rddId)) {
-        import com.ibm.gpuenabler.GPUSparkEnv
         // TODO: Free GPU memory
         GPUSparkEnv.get.cudaManager.freeGPUMemory(ptr.devPtr)
         cachedGPUPointers.remove(name)

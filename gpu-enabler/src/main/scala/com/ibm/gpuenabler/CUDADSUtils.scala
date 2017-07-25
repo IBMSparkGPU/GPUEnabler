@@ -16,12 +16,11 @@
  */
 package com.ibm.gpuenabler
 
-import jcuda.driver.CUdeviceptr
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
-import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeRow}
+import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.metric.SQLMetrics
@@ -31,8 +30,6 @@ import scala.collection.mutable
 import org.apache.spark.sql.gpuenabler.CUDAUtils._
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import java.util.concurrent.ConcurrentHashMap
-import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.scheduler.{SparkListener, SparkListenerJobStart, SparkListenerJobEnd}
 import org.apache.spark.broadcast.Broadcast
 
 case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
@@ -56,7 +53,6 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
   protected override def doExecute(): RDD[InternalRow] = {
     val numOutputRows = longMetric("numOutputRows")
 
-    val inexprEnc = inputEncoder.asInstanceOf[ExpressionEncoder[T]]
     val outexprEnc = outputEncoder.asInstanceOf[ExpressionEncoder[U]]
     val outEnc = outexprEnc
       .resolveAndBind(getAttributes(outputEncoder.schema))
