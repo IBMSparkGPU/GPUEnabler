@@ -828,7 +828,7 @@ object JCUDACodeGen extends _Logging {
         |         
         |         for(int i=0; inpitr.hasNext();i++) {
         |            Object obj = ((InternalRow)inpitr.next()).get(0, inputSchema);
-        |            InternalRow r = ((InternalRow) inExpr.toRow(obj)).copy();
+        |            InternalRow r = ((InternalRow) inExpr.toRow(obj));
         |            if (i == 0)  allocateMemory(r, cuStream);
         |            ${getStmt(variables,List("readFromInternalRow"),"")}
         |         }
