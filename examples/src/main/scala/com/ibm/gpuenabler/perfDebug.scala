@@ -109,13 +109,10 @@ object perfDebug {
     timeit("Data load in GPU", {data111.loadGpu() })
 
     timeit("DS: All cached GPUONLY", { 
-     1 to 10  foreach( idx => {
       val mapDS123 = data111.mapExtFunc(2 * _, dsmapFunction).cacheGpu(true)
       val output = mapDS123.reduceExtFunc(_ + _, dsreduceFunction)
       mapDS123.unCacheGpu()
-      println(s"$idx - Output is $output")
-      Thread.sleep(5000);
-     })
+      println(s"Output is $output")
     })
  
     data111.unCacheGpu()
