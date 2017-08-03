@@ -20,9 +20,9 @@ package com.ibm.gpuenabler
 import jcuda.driver.CUdeviceptr
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.gpuenabler.CUDAUtils._
-import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap}
+import java.util.concurrent.ConcurrentHashMap
 import org.apache.spark.sql.gpuenabler.CUDAUtils._Logging
-import org.apache.spark.scheduler.{SparkListener, SparkListenerJobEnd, SparkListenerJobStart}
+import org.apache.spark.scheduler.{SparkListener, SparkListenerJobEnd}
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
@@ -188,10 +188,12 @@ private[gpuenabler] class GPUMemoryManagerSlaveEndPoint(val rpcEnv: _RpcEnv,
     case CacheGPUDS(lp : String, flag: Boolean) =>
       cacheGPU(lp, flag)
       context.reply (true)
-    case id : String =>
+    case _ : String =>
       context.reply (true)
   }
 }
+
+case class CachedGPUMeta (ptr: CUdeviceptr, own: Boolean, colWidth: java.lang.Integer )
 
 private[gpuenabler] class GPUMemoryManager(val executorId : String,
                        val rpcEnv : _RpcEnv,
@@ -200,12 +202,12 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
                        val isLocal : Boolean) {
   
   val cachedGPUPointersDS = new ConcurrentHashMap[String,
-    collection.concurrent.Map[Long, collection.concurrent.Map[String, CUdeviceptr]]].asScala
+    collection.concurrent.Map[Long, collection.concurrent.Map[String, CachedGPUMeta]]].asScala
   val cachedGPUOnlyDS = new mutable.ListBuffer[String]()
   val cachedGPUDS = new mutable.ListBuffer[String]()
 
   def getCachedGPUPointersDS : collection.concurrent.Map[String,
-    collection.concurrent.Map[Long, collection.concurrent.Map[String, CUdeviceptr]]] = cachedGPUPointersDS
+    collection.concurrent.Map[Long, collection.concurrent.Map[String, CachedGPUMeta]]] = cachedGPUPointersDS
 
   def cacheGPU(lp : String, flag: Boolean =false): Unit = {
     if (flag) {
@@ -221,7 +223,7 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
       }
     }
     cachedGPUPointersDS.getOrElseUpdate(lp, {
-      new ConcurrentHashMap[Long, collection.concurrent.Map[String, CUdeviceptr]].asScala
+      new ConcurrentHashMap[Long, collection.concurrent.Map[String, CachedGPUMeta]].asScala
     })
   }
 
@@ -229,15 +231,14 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
     cachedGPUDS -= lp
 
     cachedGPUPointersDS.get(lp) match {
-      case Some(partNumPtrs) => {
+      case Some(partNumPtrs) => 
         val gpuPtrs = partNumPtrs.values
         gpuPtrs.foreach((partPtr) => {
           partPtr.foreach{
-            case (_, ptr) => GPUSparkEnv.get.cudaManager.freeGPUMemory(ptr)
+            case (_, obj) => if (obj.own) { GPUSparkEnv.get.cudaManager.freeGPUMemory(obj.ptr) }
           }
         })
         cachedGPUPointersDS -= lp
-      }
       case None =>
     }
   }
@@ -274,7 +275,6 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
     cachedGPURDDs -= rddId
     for ((name, ptr) <- cachedGPUPointers) {
       if (name.startsWith("rdd_" + rddId)) {
-        import com.ibm.gpuenabler.GPUSparkEnv
         // TODO: Free GPU memory
         GPUSparkEnv.get.cudaManager.freeGPUMemory(ptr.devPtr)
         cachedGPUPointers.remove(name)

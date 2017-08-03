@@ -17,8 +17,8 @@
 
 package com.ibm.gpuenabler
 
-import jcuda.driver.CUdeviceptr
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.Encoder
 
 /**
   * Interface for generated predicate
@@ -26,8 +26,16 @@ import org.apache.spark.sql.catalyst.InternalRow
 abstract class JCUDACodegenIterator extends Iterator[InternalRow] {
   def hasNext() : Boolean
   def next() : InternalRow
-  def init(itr : java.util.Iterator[InternalRow], args: Array[Any],size : Int,
-           cached: Int, gpuPtrs: java.util.List[java.util.Map[String, CUdeviceptr]], blockID: Int,
-           userGridSizes: Array[Array[Int]], userBlockSizes: Array[Array[Int]], stages: Int, smSize: Int)
+  def init[T](itr : java.util.Iterator[InternalRow], 
+              args: Array[Any],
+              size : Int,
+              cached: Int, 
+              gpuPtrs: java.util.List[java.util.Map[String, CachedGPUMeta]], 
+              blockID: Int,
+              userGridSizes: Array[Array[Int]], 
+              userBlockSizes: Array[Array[Int]], 
+              stages: Int, 
+              smSize: Int,
+              inpEnc: Encoder[T])
 }
 
