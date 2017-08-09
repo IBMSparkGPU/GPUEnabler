@@ -1,0 +1,16 @@
+---
+language: java
+
+script: mvn clean package exec:exec
+
+jdk:
+  - oraclejdk8
+  - oraclejdk7
+  - openjdk7
+
+notifications:
+  # Email notifications are disabled to not annoy anybody.
+  email: false
+
+os:
+  - linux

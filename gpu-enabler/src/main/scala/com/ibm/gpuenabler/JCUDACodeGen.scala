@@ -304,6 +304,17 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    // Wrap the device variable for creating kernel parameters
+    codeStmt += "kernel-param-mod" -> {
+      if(is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
+        if (!is(CONST) || length != -1)
+          s",$deviceVariableName\n"
+        else  // Directly pass the constant values for primitives.
+          s",(new ${javaType}[]{(${ctx.boxedType(dataType)})refs[$colName]})\n"
+      else
+        ""
+    }
+
     // Copy Data from device to host memory; only for non-GPU only cached memory
     codeStmt += "memcpyD2H" -> {
       // TODO : Evaluate for performance;
@@ -647,6 +658,7 @@ object JCUDACodeGen extends _Logging {
         |import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder;
         |import org.apache.spark.sql.Encoder;
         |import org.apache.spark.sql.types.StructType;
+         |import java.lang.reflect.Method;
         |
         |import java.nio.*;
         |import java.util.Iterator;
@@ -778,12 +790,11 @@ object JCUDACodeGen extends _Logging {
         |    public void processGPU() {
         |       
 	|       inpitr.hasNext();
-        |       ${ if (cf.funcName != "") {
+         |    ${if (cf.funcName != "" && cf.resource.asInstanceOf[String].endsWith("ptx")) {
                   s"""CUmodule module = GPUSparkEnv.get().cudaManager().getModule("${cf.resource}");"""
                 } else {
                   "GPUSparkEnv.get().cudaManager();"
                  }}
-        |
         |       ${ if (cf.stagesCount.isEmpty) {
                  s"""| blockSizeX = new int[1][1];
                      | gridSizeX = new int[1][1];
@@ -797,7 +808,7 @@ object JCUDACodeGen extends _Logging {
                      | gridSizeX[0][0] = (int) Math.ceil((double) numElements / blockSizeX[0][0]);
                 """.stripMargin
                 } else "" }
-        |       ${if (cf.funcName != "") {
+         |       ${if (cf.funcName != "" && cf.resource.asInstanceOf[String].endsWith("ptx")) {
 		 s"""
 		   |// Obtain a function pointer to the ${cf.funcName} function.
 		   |    CUfunction function = new CUfunction();
@@ -842,9 +853,8 @@ object JCUDACodeGen extends _Logging {
         |       ${getStmt(variables,List("memcpyH2D"),"")}
         |       cuCtxSynchronize();
         |
-        | ${
-            if (cf.stagesCount.isEmpty) {
-              if (cf.funcName != "") {
+         | ${ if (cf.stagesCount.isEmpty) {
+          if (cf.funcName != "" && cf.resource.asInstanceOf[String].endsWith("ptx")) {
               s"""
                  |  Pointer kernelParameters = Pointer.to(
                  |    Pointer.to(new int[]{numElements})
@@ -857,6 +867,33 @@ object JCUDACodeGen extends _Logging {
                  |    sharedMemory, cuStream,               // Shared memory size and stream
                  |    kernelParameters, null // Kernel- and extra parameters
                  |  );
+               """.stripMargin
+          } else if (cf.funcName != "") { // External Module Invocation
+            s"""
+               |  Object[] kernelParameters = {
+               |    numElements
+               |    ${getStmt(variables, List("kernel-param-mod"), "")}
+               |  };
+               |  String methodName = "${cf.funcName}";
+               |  String className = "${cf.resource}";
+               |  System.out.println("Invoke method: " + methodName + " in class " + className);
+               |
+               |  // Call the kernel function.
+               |  try {
+               |    Class classRef = Class.forName(className);
+               |    Object instance = classRef.newInstance();
+               |    try {
+               |       Class[] paramObj = new Class[1];
+               |       paramObj[0] = Object[].class;
+               |
+               |       Method method = classRef.getDeclaredMethod(methodName, paramObj);
+               |       method.invoke(instance, new Object[]{ kernelParameters });
+               |    } catch (Exception ex) {
+               |      ex.printStackTrace();
+               |    }
+               |  } catch (Exception ex) {
+               |      ex.printStackTrace();
+               |  }
                """.stripMargin
               } else ""
             } else
