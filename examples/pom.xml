@@ -31,7 +31,8 @@
   <inceptionYear>2016</inceptionYear>
   <packaging>jar</packaging>
   <properties>
-    <sbt.project.name>examples</sbt.project.name>
+      <sbt.project.name>examples</sbt.project.name>
+      <libJ.version>linux-ppc_64</libJ.version>
   </properties>
   <name>GPU Enabler Examples</name>
 
@@ -40,6 +41,11 @@
       <id>scala-tools.org</id>
       <name>Scala-Tools Maven2 Repository</name>
       <url>http://scala-tools.org/repo-releases</url>
+    </repository>
+    <repository>
+        <id>jcuda.local</id>
+        <name>JCuda</name>
+        <url>file:${project.basedir}/../${mavenized.jcuda}/repo</url>
     </repository>
   </repositories>
 
@@ -110,6 +116,216 @@
         </executions>
       </plugin>
       <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-dependency-plugin</artifactId>
+          <executions>
+              <execution>
+                  <id>unpack-jcublas-natives</id>
+                  <phase>package</phase>
+                  <goals>
+                      <goal>unpack</goal>
+                  </goals>
+                  <configuration>
+                      <skip>${skip.jcuda.natives}</skip>
+                      <artifactItems>
+                          <artifactItem>
+                              <groupId>jcuda</groupId>
+                              <artifactId>jcublas-natives</artifactId>
+                              <version>${jcuda.version}</version>
+                              <classifier>${libJ.version}</classifier>
+                              <type>jar</type>
+                              <overWrite>true</overWrite>
+                              <includes>**/*.so</includes>
+                              <outputDirectory>${project.build.directory}</outputDirectory>
+                          </artifactItem>
+                      </artifactItems>
+                  </configuration>
+              </execution>
+
+              <execution>
+                  <id>unpack-jcuda-natives</id>
+                  <phase>package</phase>
+                  <goals>
+                      <goal>unpack</goal>
+                  </goals>
+                  <configuration>
+                      <skip>${skip.jcuda.natives}</skip>
+                      <artifactItems>
+                          <artifactItem>
+                              <groupId>jcuda</groupId>
+                              <artifactId>jcuda-natives</artifactId>
+                              <version>${jcuda.version}</version>
+                              <classifier>${libJ.version}</classifier>
+                              <type>jar</type>
+                              <overWrite>true</overWrite>
+                              <includes>**/*.so</includes>
+                              <outputDirectory>${project.build.directory}</outputDirectory>
+                          </artifactItem>
+                      </artifactItems>
+                  </configuration>
+              </execution>
+
+              <execution>
+                  <id>unpack-jcudnn-natives</id>
+                  <phase>package</phase>
+                  <goals>
+                      <goal>unpack</goal>
+                  </goals>
+                  <configuration>
+                      <skip>${skip.jcuda.natives}</skip>
+                      <artifactItems>
+                          <artifactItem>
+                              <groupId>jcuda</groupId>
+                              <artifactId>jcudnn-natives</artifactId>
+                              <version>${jcuda.version}</version>
+                              <classifier>${libJ.version}</classifier>
+                              <type>jar</type>
+                              <overWrite>true</overWrite>
+                              <includes>**/*.so</includes>
+                              <outputDirectory>${project.build.directory}</outputDirectory>
+                          </artifactItem>
+                      </artifactItems>
+                  </configuration>
+              </execution>
+
+              <execution>
+                  <id>unpack-jcufft-natives</id>
+                  <phase>package</phase>
+                  <goals>
+                      <goal>unpack</goal>
+                  </goals>
+                  <configuration>
+                      <skip>${skip.jcuda.natives}</skip>
+                      <artifactItems>
+                          <artifactItem>
+                              <groupId>jcuda</groupId>
+                              <artifactId>jcufft-natives</artifactId>
+                              <version>${jcuda.version}</version>
+                              <classifier>${libJ.version}</classifier>
+                              <type>jar</type>
+                              <overWrite>true</overWrite>
+                              <includes>**/*.so</includes>
+                              <outputDirectory>${project.build.directory}</outputDirectory>
+                          </artifactItem>
+                      </artifactItems>
+                  </configuration>
+              </execution>
+
+              <execution>
+                  <id>unpack-jcurand-natives</id>
+                  <phase>package</phase>
+                  <goals>
+                      <goal>unpack</goal>
+                  </goals>
+                  <configuration>
+                      <skip>${skip.jcuda.natives}</skip>
+                      <artifactItems>
+                          <artifactItem>
+                              <groupId>jcuda</groupId>
+                              <artifactId>jcurand-natives</artifactId>
+                              <version>${jcuda.version}</version>
+                              <classifier>${libJ.version}</classifier>
+                              <type>jar</type>
+                              <overWrite>true</overWrite>
+                              <includes>**/*.so</includes>
+                              <outputDirectory>${project.build.directory}</outputDirectory>
+                          </artifactItem>
+                      </artifactItems>
+                  </configuration>
+              </execution>
+
+              <execution>
+                  <id>unpack-jcusolver-natives</id>
+                  <phase>package</phase>
+                  <goals>
+                      <goal>unpack</goal>
+                  </goals>
+                  <configuration>
+                      <skip>${skip.jcuda.natives}</skip>
+                      <artifactItems>
+                          <artifactItem>
+                              <groupId>jcuda</groupId>
+                              <artifactId>jcusolver-natives</artifactId>
+                              <version>${jcuda.version}</version>
+                              <classifier>${libJ.version}</classifier>
+                              <type>jar</type>
+                              <overWrite>true</overWrite>
+                              <includes>**/*.so</includes>
+                              <outputDirectory>${project.build.directory}</outputDirectory>
+                          </artifactItem>
+                      </artifactItems>
+                  </configuration>
+              </execution>
+
+              <execution>
+                  <id>unpack-jcusparse-natives</id>
+                  <phase>package</phase>
+                  <goals>
+                      <goal>unpack</goal>
+                  </goals>
+                  <configuration>
+                      <skip>${skip.jcuda.natives}</skip>
+                      <artifactItems>
+                          <artifactItem>
+                              <groupId>jcuda</groupId>
+                              <artifactId>jcusparse-natives</artifactId>
+                              <version>${jcuda.version}</version>
+                              <classifier>${libJ.version}</classifier>
+                              <type>jar</type>
+                              <overWrite>true</overWrite>
+                              <includes>**/*.so</includes>
+                              <outputDirectory>${project.build.directory}</outputDirectory>
+                          </artifactItem>
+                      </artifactItems>
+                  </configuration>
+              </execution>
+
+              <execution>
+                  <id>unpack-jnvgraph-natives</id>
+                  <phase>package</phase>
+                  <goals>
+                      <goal>unpack</goal>
+                  </goals>
+                  <configuration>
+                      <skip>${skip.jcuda.natives}</skip>
+                      <artifactItems>
+                          <artifactItem>
+                              <groupId>jcuda</groupId>
+                              <artifactId>jnvgraph-natives</artifactId>
+                              <version>${jcuda.version}</version>
+                              <classifier>${libJ.version}</classifier>
+                              <type>jar</type>
+                              <overWrite>true</overWrite>
+                              <includes>**/*.so</includes>
+                              <outputDirectory>${project.build.directory}</outputDirectory>
+                          </artifactItem>
+                      </artifactItems>
+                  </configuration>
+              </execution>    
+          </executions>
+      </plugin>
+      <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>3.0.0</version>
+          <configuration>
+              <shadedArtifactAttached>false</shadedArtifactAttached>
+              <artifactSet>
+                  <includes>
+                      <include>com.ibm:gpu-enabler_2.11</include>
+                  </includes>
+              </artifactSet>
+          </configuration>
+          <executions>
+              <execution>
+                  <phase>package</phase>
+                  <goals>
+                      <goal>shade</goal>
+                  </goals>
+              </execution>
+          </executions>
+      </plugin>
+      <plugin>
         <groupId>org.scala-tools</groupId>
         <artifactId>maven-scala-plugin</artifactId>
         <version>2.15.2</version>
@@ -117,8 +333,12 @@
           <execution>
             <goals>
               <goal>compile</goal>
-
             </goals>
+              <configuration>
+                <excludes>
+                    <exclude>${exclude.files}</exclude>
+                </excludes>
+              </configuration>
           </execution>
         </executions>
         <configuration>
@@ -145,6 +365,12 @@
               <goals>
                 <goal>compile</goal>
               </goals>
+              <configuration>
+                <skip>${skip.jcuda.natives}</skip>
+                <excludes>
+                    <exclude>${exclude.files}</exclude>
+                </excludes>
+              </configuration>
             </execution>
             <execution>
               <id>scala-test-compile-first</id>
@@ -159,6 +385,12 @@
               <goals>
                 <goal>doc-jar</goal>
               </goals>
+              <configuration>
+                <skip>${skip.jcuda.natives}</skip>
+                <excludes>
+                    <exclude>${exclude.files}</exclude>
+                </excludes>
+              </configuration>
             </execution>
           </executions>
           <configuration>

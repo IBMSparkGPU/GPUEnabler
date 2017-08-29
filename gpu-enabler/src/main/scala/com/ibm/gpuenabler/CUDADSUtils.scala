@@ -71,6 +71,9 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
       cached |= (if(DScache.contains(logPlans(1))) 2 else 0)
       cached |= (if(GPUSparkEnv.get.gpuMemoryManager.cachedGPUOnlyDS.contains(logPlans(0))) 4 else 0)
 
+      // Generate the JCUDA program to be executed and obtain the iterator object
+      val jcudaIterator = JCUDACodeGen.generate(inputSchema,
+                     outputSchema,cf,constArgs, outputArraySizes)
       val list = new mutable.ListBuffer[InternalRow]
 
       // Get hold of hashmap for this Plan to store the GPU pointers from output parameters

@@ -32,7 +32,8 @@ else
 fi
 
 if [ -n "$1" ]; then
-  EXAMPLE_ARGS="$1"
+  EXAMPLE_ARGS="$@"
+  EXAMPLE_ARGS=`echo $EXAMPLE_ARGS| sed "s/ \+/|/g"`
 fi
 
 
