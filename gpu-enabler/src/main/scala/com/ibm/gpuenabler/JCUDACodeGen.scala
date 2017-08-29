@@ -82,7 +82,7 @@ object JCUDACodeGen extends _Logging {
 
     // Create variable's size based on column data type
     if(is(CONST)) {
-      size = s"Math.abs($length) * Sizeof.${javaType.toUpperCase()}"
+      size = s"1L * Math.abs($length) * Sizeof.${javaType.toUpperCase()}"
     } else {
       dataType match {
         case ArrayType(d, _) =>
@@ -91,15 +91,15 @@ object JCUDACodeGen extends _Logging {
           boxType = ctx.boxedType(d)
           javaType = ctx.javaType(d)
           if (outputSize != 0 && is(GPUOUTPUT)) {
-            size = s"$outputSize * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_colWidth"
+            size = s"1L * $outputSize * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_colWidth"
           } else {
-            size = s"numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_colWidth"
+            size = s"1L * numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_colWidth"
           }
         case _ => 
           if (outputSize != 0 && is(GPUOUTPUT)) {
-            size = s"$outputSize * Sizeof.${javaType.toUpperCase()}"
+            size = s"1L * $outputSize * Sizeof.${javaType.toUpperCase()}"
           } else {
-            size = s"numElements * Sizeof.${javaType.toUpperCase()}"
+            size = s"1L * numElements * Sizeof.${javaType.toUpperCase()}"
           }
       }
     }
@@ -151,7 +151,7 @@ object JCUDACodeGen extends _Logging {
                     |   ${hostVariableName}_colWidth = ((CachedGPUMeta)inputCMap.get(blockID+"gpuOutputDevice_${colName}")).colWidth();
                     |  else
                     |   ${hostVariableName}_colWidth = r.getArray($inSchemaIdx).numElements();
-                    |}
+                    |} 
                     |""".stripMargin
                  else
                   s"${hostVariableName}_colWidth = $length;"
@@ -161,6 +161,7 @@ object JCUDACodeGen extends _Logging {
             |if ( !${is(GPUINPUT)} || !((cached & 2) > 0) ||
             |   !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}") || ${is(RDDOUTPUT)} ) { 
             | if (!((cached & 4) > 0) || ${is(GPUINPUT)} || ${is(CONST)} ) {
+            |   assert (($size) < Integer.MAX_VALUE) : "Partition size too big to handle by cuMemAllocHost";
             |   cuMemAllocHost(pinMemPtr_$colName, $size);
             |   $hostVariableName = pinMemPtr_$colName.getByteBuffer(0,$size).order(ByteOrder.LITTLE_ENDIAN);
             | }
