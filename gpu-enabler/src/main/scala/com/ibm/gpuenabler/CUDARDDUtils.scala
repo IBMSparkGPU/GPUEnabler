@@ -21,6 +21,7 @@ import org.apache.spark.rdd._
 import org.apache.spark.storage.RDDBlockId
 import org.apache.spark.{Partition, TaskContext, _}
 
+import java.lang.Runtime
 import scala.language.implicitConversions
 import scala.reflect.ClassTag
 import org.apache.spark.api.java.JavaRDD
@@ -115,7 +116,7 @@ private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
       f(context, split.index, firstParent[T].iterator(split, context))
     }
   }
-}
+}  
 
 /**
   * An RDD that convert partition's iterator to a format supported by GPU computation
@@ -141,7 +142,7 @@ private[gpuenabler] class ConvertGPUPartitionsRDD[T: ClassTag](
         hyIter
       }
       case iter: Iterator[T] => {
-        // println("Converting Regular Iterator to hybridIterator")
+    	// println("Converting Regular Iterator to hybridIterator")
         // val parentBlockId = RDDBlockId(firstParent[T].id, split.index)
         val hyIter = new HybridIterator[T](iter.toArray, inputColSchema,
           null, Some(blockId))
@@ -208,8 +209,10 @@ class JavaCUDARDD[T: ClassTag](override val rdd: RDD[T])
   }
 
   def cacheGpu() = wrapRDD(rdd.cacheGpu())
+  def autoCacheGpu() = wrapRDD(rdd.autoCacheGpu())
 
   def unCacheGpu() = wrapRDD(rdd.unCacheGpu())
+  def autoUnCacheGpu() = wrapRDD(rdd.autoUnCacheGpu())
 }
 
 object JavaCUDARDD {
@@ -237,7 +240,85 @@ object CUDARDDImplicits {
     extends Serializable {
 
     def sc = rdd.sparkContext
+    
+    def autoCacheGPU(rdd: RDD[_]): Unit = {
+      val lineage = scala.collection.mutable.Set[RDD[_]]()
+      /**
+        * If calling this method in an action before the runJob,
+        * GPUEnabler cache RDDs on GPU automatically
+        * to remove redundant data transfers in a sequent of these
+        * every time GPUEnabler invoke actions has a sequent of GPU methods,
+        *
+        * gpuApiFlag shows the child type of a RDD.
+        * When the child RDD's API
+        *  case 0 => CPU API (ex, mapRDD)
+        *  case 1 => GPU API (don't divide a stage. ex, mapGPURDD)
+        *  case 2 => GPU API (divide a stage into two. ex,shuffleGPURDD)
+        */
+      var gpuApiFlag = 0
+      if(judgeApiType(rdd) == 1) rdd.autoCacheGpu(); gpuApiFlag = 1
+      trackLineage(rdd, gpuApiFlag)
 
+      def trackLineage(rdd: RDD[_], gpuApiFlag: Int): Unit = {
+        val len = rdd.dependencies.length
+        len match {
+          case 0 => Unit
+          case 1 =>
+            val d = rdd.dependencies.head
+            var apiType = judgeApiType(d.rdd)
+            classifyDep(d.rdd, apiType, gpuApiFlag)
+          case _ =>
+            val frontDeps = rdd.dependencies.take(len - 1)
+            frontDeps.foreach( d => {
+              val apiType = judgeApiType(d.rdd)
+              classifyDep(d.rdd, apiType, gpuApiFlag)
+            })
+            val lastDep = rdd.dependencies.last
+            val apiType = judgeApiType(lastDep.rdd)
+            classifyDep(lastDep.rdd, apiType, gpuApiFlag)
+        }
+      }
+
+      def classifyDep(rdd: RDD[_], apiType: Int, gpuApiFlagArg: Int): Unit = {
+        var gpuApiFlag = gpuApiFlagArg
+        apiType match {
+          case 0 =>
+            gpuApiFlag = apiType
+            trackLineage(rdd, gpuApiFlag)
+          case 1 =>
+            if(gpuApiFlag == 1) {
+              rdd.autoCacheGpu()
+              lineage += rdd
+            }
+            gpuApiFlag = 1
+            trackLineage(rdd, gpuApiFlag)
+          case 2 =>
+            gpuApiFlag = 1
+            trackLineage(rdd, gpuApiFlag)
+        }
+      }
+
+   /**
+     * This function judges whether a RDD's dependency type is
+     * to devide a stage or not.
+     * when implement a new GPUPartitionsRDD,
+     * to classify and write a new it on this method's "match" branch avoids
+     * redundant data transfers between GPU APIs.
+     * Classified number 1 and 0 is a dependency type deviding a stage
+     * or not respectively.
+     */
+
+      def judgeApiType(rdd: RDD[_]): Int = {
+        val rddType = rdd.getClass()
+        val mapGPUPartitionsClass = classOf[MapGPUPartitionsRDD[_,_]]
+        val convertGPUPartitionsClass = classOf[ConvertGPUPartitionsRDD[_]]
+        rddType match {
+          case x if x==mapGPUPartitionsClass => 1
+          case x if x==convertGPUPartitionsClass=> 1
+          case _ => 0
+        }
+      }
+    }
     /**
       * This function is used to mark the respective RDD's data to
       * be cached in GPU for future computation rather than cleaning it
@@ -250,6 +331,9 @@ object CUDARDDImplicits {
     def cacheGpu() = {
       GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(rdd.id); rdd
     }
+    def autoCacheGpu() = {
+      GPUSparkEnv.get.gpuMemoryManager.autoCacheGPUSlaves(rdd.id); rdd
+    }
 
     /**
       * This function is used to clean up all the caches in GPU held
@@ -257,6 +341,9 @@ object CUDARDDImplicits {
       */
     def unCacheGpu() = {
       GPUSparkEnv.get.gpuMemoryManager.unCacheGPUSlaves(rdd.id); rdd
+    }
+    def autoUnCacheGpu() = {
+      GPUSparkEnv.get.gpuMemoryManager.autoUnCacheGPUSlaves(rdd.id); rdd
     }
 
     /**
@@ -316,7 +403,6 @@ object CUDARDDImplicits {
                       outputArraySizes: Seq[Int] = null,
                       inputFreeVariables: Seq[Any] = null): T = {
       import org.apache.spark.gpuenabler.CUDAUtils
-
       val cleanF = CUDAUtils.cleanFn(sc, f) // sc.clean(f)
 
       val reducePartition: (TaskContext, Iterator[T]) => Option[T] = (ctx: TaskContext, data: Iterator[T]) =>  {
@@ -352,7 +438,6 @@ object CUDARDDImplicits {
           }
         }
       }
-
       var jobResult: Option[T] = None
       val mergeResult = (index: Int, taskResult: Option[T]) => {
         if (taskResult.isDefined) {
@@ -362,7 +447,7 @@ object CUDARDDImplicits {
           }
         }
       }
-
+      autoCacheGPU(rdd)
       sc.runJob(rdd, reducePartition, 0 until rdd.partitions.length, mergeResult)
       jobResult.getOrElse(throw new UnsupportedOperationException("empty collection"))
     }
@@ -409,6 +494,7 @@ object CUDARDDImplicits {
           }
         }
       }
+      autoCacheGPU(rdd)
       sc.runJob(rdd, reducePartition, 0 until rdd.partitions.length, mergeResult)
       jobResult.getOrElse(throw new UnsupportedOperationException("empty collection"))
     }

@@ -116,10 +116,9 @@ object SparkGPULR {
         dmulvs(p.x, (1 / (1 + exp(-p.y * (ddotvv(wbc.value, p.x)))) - 1) * p.y),
         mapFunction.value, outputArraySizes = Array(D),
         inputFreeVariables = Array(wbc.value)
-      ).cacheGpu
+      )
       val gradient = mapRdd.reduceExtFunc((x: Array[Double], y: Array[Double]) => daddvv(x, y),
         reduceFunction.value, outputArraySizes = Array(D))
-      mapRdd.unCacheGpu()
       w = dsubvv(w, gradient)
     }
 

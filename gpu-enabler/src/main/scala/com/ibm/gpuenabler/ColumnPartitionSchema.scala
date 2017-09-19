@@ -21,12 +21,20 @@ import java.io.{ObjectInputStream, ObjectOutputStream}
 
 import org.apache.spark.gpuenabler.CUDAUtils
 import org.apache.spark.util.Utils
+import org.apache.spark.gpuenabler.CUDAUtils.sparkUtils.tryOrIOException
+
 
 import scala.collection.immutable.HashMap
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe
 import scala.reflect.runtime.universe.{TermSymbol, Type, typeOf}
 
+
+import scala.collection.mutable.ArrayBuffer
+import scala.io.Source
+import scala.reflect.ClassTag
+import scala.util.Try
+import scala.util.control.{ControlThrowable, NonFatal}
 // Some code taken from org.apache.spark.sql.catalyst.ScalaReflection
 
 // Dummy object to make the code work with TRL samples program
@@ -36,7 +44,7 @@ private[gpuenabler] case object ColumnFormat extends PartitionFormat
 
 private[gpuenabler] object ColumnPartitionSchema {
 
-  // Since we are creating a runtime mirror using the class loader of current thread,
+  // Since we are creating a runtime mirror usign the class loader of current thread,
   // we need to use def at here. So, every time we call mirror, it is using the
   // class loader of the current thread.
   // TODO check out if synchronization etc. is needed - see bug
@@ -252,15 +260,15 @@ private[gpuenabler] class ColumnSchema(
     out.writeObject(propertyChain)
   }
 
-  private def readObject(in: ObjectInputStream): Unit = CUDAUtils.sparkUtils.tryOrIOException {
+  private def readObject(in: ObjectInputStream): Unit = CUDAUtils.sparkUtils.tryOrIOException { 
     val mirror = ColumnPartitionSchema.mirror
     _columnType = in.readObject().asInstanceOf[ColumnType]
     _terms =
       in.readObject().asInstanceOf[Vector[(String, String)]].map { case (clsName, propName) =>
         val cls = CUDAUtils.sparkUtils.classForName(clsName)
         val typeSig = mirror.classSymbol(cls).typeSignature
-        typeSig.decl(universe.TermName(propName)).asTerm
-        // typeSig.declaration(universe.stringToTermName(propName)).asTerm // Scala_2.10
+        typeSig.declaration(universe.stringToTermName(propName)).asTerm
+        // typeSig.decl(universe.TermName(propName)).asTerm // Scala_2.11
       }
   }
 
