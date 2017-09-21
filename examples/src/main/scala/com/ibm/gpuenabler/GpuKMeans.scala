@@ -153,29 +153,65 @@ object GpuKMeans {
         Some((size: Long) => 1),
         Some(gpuParams2), outputSize=Some(1)) )
  
- 
+    val means: Array[DataPointKMeansMod] = data1.rdd.takeSample(true, k, 42)
+
+    var oldMeans = means
+
     def func1(p: DataPointKMeans): ClusterIndexes = {
       ClusterIndexes(p.features, 0)
     }
- 
-    def func1Mod(p: DataPointKMeansMod): ClusterIndexes = {
-      ClusterIndexes(p.features, 0)
+
+    def func1Mod(point: DataPointKMeansMod): ClusterIndexes = {
+      var bestCluster = 0
+      var bestDistance = Double.PositiveInfinity
+
+      var c = 0
+      oldMeans.foreach { center =>
+        var lowerBoundOfSqDist = center.norm - point.norm
+        lowerBoundOfSqDist = lowerBoundOfSqDist * lowerBoundOfSqDist
+        if (lowerBoundOfSqDist < bestDistance) {
+          val dist = squaredDistance(point.features, center.features)
+
+          if (bestDistance > dist) {
+            bestCluster = c
+            bestDistance = dist
+          }
+        }
+        c += 1
+      }
+
+      ClusterIndexes(point.features, bestCluster)
     }
- 
+
     def func2(c: ClusterIndexes): Results = {
-      Results(Array.empty, Array.empty, Array.empty)
+      val d = oldMeans(0).features.size
+      val k = oldMeans.length
+
+      val s0 = Array.fill[Int](k)(0)
+      val s1 = Array.fill[Double](d * k)(0)
+      val s2 = Array.fill[Double](d * k)(0)
+
+      s0(c.index) += 1
+
+      for (dim <- 0 until d) {
+        var coord = c.features(dim)
+
+        s1(c.index * d + dim) += coord
+        s2(c.index * d + dim) += coord * coord
+      }
+
+      Results(s0, s1, s2)
     }
- 
+
     def func3(r1: Results, r2: Results): Results = {
       Results(addArr(r1.s0, r2.s0),
-        addArr(r1.s1, r2.s1),addArr(r1.s2, r2.s2))
+        addArr(r1.s1, r2.s1), addArr(r1.s2, r2.s2))
     }
- 
-    val means: Array[DataPointKMeansMod] = data1.rdd.takeSample(true, k, 42)
- 
+
     val data = data1.cacheGpu(true)
-    timeit("Data loaded in GPU ", { data.loadGpu() })
-    var oldMeans = means
+    timeit("Data loaded in GPU ", {
+      data.loadGpu()
+    })
  
     // Warm-Up
     val oldCentroids = oldMeans.flatMap(p => p.features)
@@ -227,14 +263,14 @@ object GpuKMeans {
       val maxDelta = oldMeans.zip(newMeans)
         .map(squaredDistanceMod)
         .max 
+        cost = getCost(k, d, result.s0, result.s1, result.s2)
       changed = maxDelta > epsilon
 
       oldMeans = newMeans
       //println(s"Cost @ iteration ${iteration} is ${cost}")
      }
     })
-     
-    cost = getCost(k, d, result.s0, result.s1, result.s2)
+
     data.unCacheGpu
     println("Finished in " + iteration + " iterations")
     (oldMeans, cost)
