@@ -62,8 +62,13 @@ case class MAPGPUExec[T, U](cpf: AnyRef ,cf: DSCUDAFunction, constArgs : Array[A
       .resolveAndBind(getAttributes(outputEncoder.schema))
 
     val childRDD = child.execute()
-    //Check if GPU is available or Enabled on the Executor Node
+    var skipExecution = false
 
+    // handle special case of loadGPU; Since data is already in GPU, do nothing
+    if (cf.funcName == "") {
+      skipExecution = true
+    }
+    //Check if GPU is available or Enabled on the Executor Node
     if(GPUSparkEnv.get.isGPUEnabled) {
       childRDD.mapPartitionsWithIndex{ (partNum, iter) =>
 
@@ -116,13 +121,13 @@ case class MAPGPUExec[T, U](cpf: AnyRef ,cf: DSCUDAFunction, constArgs : Array[A
 
         val imgpuPtrs: java.util.List[java.util.Map[String, CachedGPUMeta]] =
           List(curPlanPtrs, childPlanPtrs).asJava
-
-        var skipExecution = false
-
-
-        // handle special case of loadGPU; Since data is already in GPU, do nothing
-        if (cf.funcName == "") {
-          skipExecution = true
+        
+        var dataSize = 0
+        if (!skipExecution) {
+          dataSize = partSizes.value.getOrElse(partNum, 1)
+          if (dataSize == 0) {
+            skipExecution = true;
+          }
         }
 
         if (!skipExecution) {
@@ -130,8 +135,7 @@ case class MAPGPUExec[T, U](cpf: AnyRef ,cf: DSCUDAFunction, constArgs : Array[A
           val jcudaIterator = JCUDACodeGen.generate(inputSchema,
             outputSchema,cf,constArgs, outputArraySizes)
 
-          val dataSize = partSizes.value.getOrElse(partNum, 1)
-          assert(dataSize > 0)
+          //assert(dataSize > 0)
 
           // Compute the GPU Grid Dimensions based on the input data size
           // For user provided Dimensions; retrieve it along with the
@@ -170,32 +174,33 @@ case class MAPGPUExec[T, U](cpf: AnyRef ,cf: DSCUDAFunction, constArgs : Array[A
     }
       //else part is executed if the GPU is not Available or Enabled
     else {
-
-      val callFunc: Any => Any = cpf match {
-        case m: MapFunction[_, _] => i => m.asInstanceOf[MapFunction[Any, Any]].call(i)
-        case f: scala.Function1[_, _] => cpf.asInstanceOf[Any => Any]
-        case _ => null
-      }
-
-      val reduceCallFunc: (Any, Any) => Any = cpf match {
-        case m: scala.Function2[_, _, _] => m.asInstanceOf[(Any, Any) => Any]
-        case _ => null
-      }
-
-      if (callFunc != null) {
-        childRDD.mapPartitions { iter =>
-          val getObject = ObjectOperator.unwrapObjectFromRow(child.output.head.dataType)
-          val outputObject = ObjectOperator.wrapObjectToRow(outputObjAttr.dataType)
-          iter.map(row => outputObject(callFunc(getObject(row))))
+      if (!skipExecution) {
+        val callFunc: Any => Any = cpf match {
+          case m: MapFunction[_, _] => i => m.asInstanceOf[MapFunction[Any, Any]].call(i)
+          case f: scala.Function1[_, _] => cpf.asInstanceOf[Any => Any]
+          case _ => null
         }
-      } else {
-        assert(reduceCallFunc != null, "Unknown Function Type")
-        val outEnc = outexprEnc.resolveAndBind(getAttributes(outputEncoder.schema))
 
-        //Return RDD
+        val reduceCallFunc: (Any, Any) => Any = cpf match {
+          case m: scala.Function2[_, _, _] => m.asInstanceOf[(Any, Any) => Any]
+          case _ => null
+        }
+
+        if (callFunc != null) {
+          childRDD.mapPartitions { iter =>
+            val getObject = ObjectOperator.unwrapObjectFromRow(child.output.head.dataType)
+            val outputObject = ObjectOperator.wrapObjectToRow(outputObjAttr.dataType)
+            iter.map(row => outputObject(callFunc(getObject(row))))
+          }
+        } else {
+          assert(reduceCallFunc != null, "Unknown Function Type")
+          val outEnc = outexprEnc.resolveAndBind(getAttributes(outputEncoder.schema))
+
+          //Return RDD
+          childRDD
+        }
+      } else
         childRDD
-
-      }
     }
   }
 }
@@ -346,9 +351,9 @@ object CUDADSImplicits {
     */
     def getPartSizes: Broadcast[Map[Int, Int]] = {
       val execPlan = ds.queryExecution.executedPlan
-      val logPlan = ds.queryExecution.optimizedPlan match {
+      val logPlan = ds.queryExecution.logical match {
         case SerializeFromObject(_, lp) => lp
-        case _ => ds.queryExecution.optimizedPlan
+        case _ => ds.queryExecution.logical
       }
 
       val partSizes: Broadcast[Map[Int, Int]] = logPlan match {
@@ -436,7 +441,6 @@ object CUDADSImplicits {
         case _ => ds.queryExecution.optimizedPlan
       }
       GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(md5HashObj(logPlan))
-      if(GPUSparkEnv.get.isGPUEnabled) {
         // Create a new Dataset to load the data into GPU
         val ds1 = DS[T](ds.sparkSession,
           LOADGPU[T](getPartSizes, getLogicalPlan(ds)))
@@ -444,8 +448,6 @@ object CUDADSImplicits {
         // trigger an action
         ds1.count()
         ds1
-      }
-      ds
     }
 
     /**
@@ -484,4 +486,5 @@ object CUDADSImplicits {
     ds.sparkSession.experimental.extraStrategies = GPUOperators :: Nil
   }
 }
+
 
