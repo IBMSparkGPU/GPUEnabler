@@ -165,7 +165,7 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
       }
     )
     if(autoCachedGPURDDs.size > 0){
-     val rddId = autoCachedGPURDDs.head
+      val rddId = autoCachedGPURDDs.head
     autoCachedGPURDDs -= rddId
 
     for ((name, ptr) <- cachedGPUPointers) {

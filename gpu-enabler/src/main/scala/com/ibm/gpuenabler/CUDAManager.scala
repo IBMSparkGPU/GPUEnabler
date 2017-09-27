@@ -143,7 +143,7 @@ private[gpuenabler] class CUDAManager {
      * In order to reuse cached RDDs on gpu as much as possible,
      * adopt LRU as a cache strategy.
      *
-     * gpuMemThreshold is a threshold for sadety of a GPU memory.
+     * gpuMemThreshold is a threshold for safety of a GPU memory.
      * when this variable has "1000000000",
      * if GPU free space become less than "1000000000B (1 GB)",
      * auto cached RDD on GPU is evicted on a LRU policy.

@@ -116,7 +116,7 @@ private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
       f(context, split.index, firstParent[T].iterator(split, context))
     }
   }
-}  
+}
 
 /**
   * An RDD that convert partition's iterator to a format supported by GPU computation
@@ -255,9 +255,9 @@ object CUDARDDImplicits {
         *  case 1 => GPU API (don't divide a stage. ex, mapGPURDD)
         *  case 2 => GPU API (divide a stage into two. ex,shuffleGPURDD)
         */
-      var gpuApiFlag = 0
-      if(judgeApiType(rdd) == 1) rdd.autoCacheGpu(); gpuApiFlag = 1
-      trackLineage(rdd, gpuApiFlag)
+
+      if(judgeApiType(rdd) == 1) rdd.autoCacheGpu()
+      trackLineage(rdd, 1)
 
       def trackLineage(rdd: RDD[_], gpuApiFlag: Int): Unit = {
         val len = rdd.dependencies.length
@@ -265,7 +265,7 @@ object CUDARDDImplicits {
           case 0 => Unit
           case 1 =>
             val d = rdd.dependencies.head
-            var apiType = judgeApiType(d.rdd)
+            val apiType = judgeApiType(d.rdd)
             classifyDep(d.rdd, apiType, gpuApiFlag)
           case _ =>
             val frontDeps = rdd.dependencies.take(len - 1)
@@ -279,22 +279,15 @@ object CUDARDDImplicits {
         }
       }
 
-      def classifyDep(rdd: RDD[_], apiType: Int, gpuApiFlagArg: Int): Unit = {
-        var gpuApiFlag = gpuApiFlagArg
+      def classifyDep(rdd: RDD[_], apiType: Int, gpuApiFlag: Int): Unit = {
         apiType match {
           case 0 =>
-            gpuApiFlag = apiType
-            trackLineage(rdd, gpuApiFlag)
+            trackLineage(rdd, 0)
           case 1 =>
-            if(gpuApiFlag == 1) {
-              rdd.autoCacheGpu()
-              lineage += rdd
-            }
-            gpuApiFlag = 1
-            trackLineage(rdd, gpuApiFlag)
+            if(gpuApiFlag == 1) rdd.autoCacheGpu()
+            trackLineage(rdd, 1)
           case 2 =>
-            gpuApiFlag = 1
-            trackLineage(rdd, gpuApiFlag)
+            trackLineage(rdd, 1)
         }
       }
 
@@ -313,8 +306,8 @@ object CUDARDDImplicits {
         val mapGPUPartitionsClass = classOf[MapGPUPartitionsRDD[_,_]]
         val convertGPUPartitionsClass = classOf[ConvertGPUPartitionsRDD[_]]
         rddType match {
-          case x if x==mapGPUPartitionsClass => 1
-          case x if x==convertGPUPartitionsClass=> 1
+          case x if x == mapGPUPartitionsClass => 1
+          case x if x == convertGPUPartitionsClass=> 1
           case _ => 0
         }
       }
@@ -403,6 +396,7 @@ object CUDARDDImplicits {
                       outputArraySizes: Seq[Int] = null,
                       inputFreeVariables: Seq[Any] = null): T = {
       import org.apache.spark.gpuenabler.CUDAUtils
+
       val cleanF = CUDAUtils.cleanFn(sc, f) // sc.clean(f)
 
       val reducePartition: (TaskContext, Iterator[T]) => Option[T] = (ctx: TaskContext, data: Iterator[T]) =>  {
@@ -438,6 +432,7 @@ object CUDARDDImplicits {
           }
         }
       }
+
       var jobResult: Option[T] = None
       val mergeResult = (index: Int, taskResult: Option[T]) => {
         if (taskResult.isDefined) {

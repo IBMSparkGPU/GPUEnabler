@@ -44,7 +44,7 @@ private[gpuenabler] case object ColumnFormat extends PartitionFormat
 
 private[gpuenabler] object ColumnPartitionSchema {
 
-  // Since we are creating a runtime mirror usign the class loader of current thread,
+  // Since we are creating a runtime mirror using the class loader of current thread,
   // we need to use def at here. So, every time we call mirror, it is using the
   // class loader of the current thread.
   // TODO check out if synchronization etc. is needed - see bug
@@ -267,8 +267,8 @@ private[gpuenabler] class ColumnSchema(
       in.readObject().asInstanceOf[Vector[(String, String)]].map { case (clsName, propName) =>
         val cls = CUDAUtils.sparkUtils.classForName(clsName)
         val typeSig = mirror.classSymbol(cls).typeSignature
-        typeSig.declaration(universe.stringToTermName(propName)).asTerm
-        // typeSig.decl(universe.TermName(propName)).asTerm // Scala_2.11
+        typeSig.decl(universe.TermName(propName)).asTerm
+        // typeSig.declaration(universe.stringToTermName(propName)).asTerm // Scala_2.10
       }
   }
 
