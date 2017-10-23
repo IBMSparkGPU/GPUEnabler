@@ -3,7 +3,7 @@
   <groupId>jcuda</groupId>
   <artifactId>libJCudaRuntime</artifactId>
   <versioning>
-    <release>0.7.0a</release>
+    <release>0.7.5b</release>
     <versions>
       <version>0.5.5</version>
       <version>0.5.0</version>
@@ -11,7 +11,8 @@
       <version>0.6.5</version>
       <version>0.7.0a</version>
       <version>0.7.5</version>
+      <version>0.7.5b</version>
     </versions>
-    <lastUpdated>20151009191257</lastUpdated>
+    <lastUpdated>20160529200619</lastUpdated>
   </versioning>
 </metadata>
