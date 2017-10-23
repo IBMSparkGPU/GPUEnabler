@@ -79,15 +79,15 @@ private[gpuenabler] object GPUSparkEnv {
   // Auto Caching in GPU Enabled by default
   val isAutoCacheEnabled: Boolean =
     if (SparkEnv.get.conf.getInt("spark.gpuenabler.autocache", 1) == 1) true else false
- 
+
   def get = {
       val curSparkEnv = SparkEnv.get
       synchronized {
         if (curSparkEnv != null && curSparkEnv  != oldSparkEnv) {
           oldSparkEnv = curSparkEnv
           initalize()
-         
-          if (env.isGPUEnabled) { 
+
+          if (env.isGPUEnabled) {
             val executorId = env.executorId match {
               case "driver" => 0
               case _ => SparkEnv.get.executorId.toInt

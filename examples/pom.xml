@@ -26,7 +26,7 @@
   </parent>
 
   <groupId>com.ibm</groupId>
-  <artifactId>gpu-enabler-examples_2.11</artifactId>
+  <artifactId>gpu-enabler-examples_${scala.binary.version}</artifactId>
   <version>1.0.0</version>
   <inceptionYear>2016</inceptionYear>
   <packaging>jar</packaging>
@@ -60,7 +60,7 @@
   <dependencies>
     <dependency>
       <groupId>com.ibm</groupId>
-      <artifactId>gpu-enabler_2.11</artifactId>
+      <artifactId>gpu-enabler_${scala.binary.version}</artifactId>
       <version>1.0.0</version>
     </dependency>
       <dependency>

@@ -80,10 +80,10 @@
   </modules>
 
   <dependencies>
-        <dependency>
-            <groupId>org.apache.spark</groupId>
-            <artifactId>spark-core_2.11</artifactId>
-            <version>2.1.0</version>
+    <dependency>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-core_${scala.binary.version}</artifactId>
+      <version>2.1.0</version>
         <exclusions>
             <exclusion>
                 <!-- make sure wrong scala version is not pulled in -->
@@ -124,15 +124,20 @@
         <scope>test</scope>
     </dependency>
     <dependency>
+        <groupId>org.scala-lang</groupId>
+        <artifactId>scala-xml</artifactId>
+        <version>2.11.0-M4</version>
+    </dependency>
+    <dependency>
       <groupId>org.scalatest</groupId>
-      <artifactId>scalatest_2.10</artifactId>
-      <version>2.2.5</version>
+      <artifactId>scalatest_${scala.binary.version}</artifactId>
+      <version>2.2.6</version>
       <scope>test</scope>
         <exclusions>
             <exclusion>
                 <!-- make sure wrong scala version is not pulled in -->
                 <groupId>org.scala-lang.modules</groupId>
-                <artifactId>scala-xml_2.10</artifactId>
+                <artifactId>scala-xml_${scala.binary.version}</artifactId>
             </exclusion>
         </exclusions>
 

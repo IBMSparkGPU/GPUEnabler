@@ -16,7 +16,7 @@
  */
  
 package com.ibm.gpuenabler
- 
+
 import java.net.URL
 import jcuda.Pointer
 import jcuda.driver.JCudaDriver._
@@ -78,6 +78,7 @@ private class CUDAManager {
 
     val devIx = new Array[Int](1)
     JCuda.cudaGetDevice(devIx)
+
     synchronized {
       // Since multiple modules cannot be loaded into one context in runtime API,
       //   we use singleton cache http://stackoverflow.com/questions/32502375/
@@ -100,6 +101,7 @@ private class CUDAManager {
         moduleBinaryData0(moduleBinaryDataLength) = 0
         val module = new CUmodule
         JCudaDriver.cuModuleLoadData(module, moduleBinaryData0)
+	CUDAManagerCachedModule.getInstance.put((key, devIx(0)), module)
         module
       })
     }

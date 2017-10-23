@@ -362,12 +362,12 @@
     </dependency>
     <dependency>
       <groupId>org.scalatest</groupId>
-      <artifactId>scalatest_2.10</artifactId>
-      <version>2.2.5</version>
+      <artifactId>scalatest_2.11</artifactId>
+      <version>2.2.6</version>
       <scope>test</scope>
       <exclusions>
         <exclusion>
-          <artifactId>scala-xml_2.10</artifactId>
+          <artifactId>scala-xml_2.11</artifactId>
           <groupId>org.scala-lang.modules</groupId>
         </exclusion>
       </exclusions>
