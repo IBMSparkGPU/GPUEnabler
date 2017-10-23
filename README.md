@@ -7,16 +7,19 @@ The following capabilities are provided by this package,
 * convert the data from partitions to a columnar format so that
   it can be easily fed into the GPU kernel.
 * provide support for caching inside GPU for optimized performance.
+* New: Supports Spark Datasets starting ver. 2.0.0.
 
 
 ## Requirements
 
-This package is compatible with Spark 1.5+ and scala 2.10
+This package is compatible with Spark 1.5+ and scala 2.10+
 
 
 | Spark Version |  Scala Version | Compatible version of Spark GPU |
 | ------------- |-----------------|----------------------|
+| `2.1+`        | `2.11`          |`2.0.0`               |
 | `1.5+`        | `2.10`          |`1.0.0`               |
+
 
 ## Linking
 
@@ -25,7 +28,7 @@ You can link against this library (for Spark 1.5+) in your program at the follow
 Using SBT:
 
 ```
-libraryDependencies += "com.ibm" %% "gpu-enabler_2.10" % "1.0.0"
+libraryDependencies += "com.ibm" %% "gpu-enabler_2.11" % "2.0.0"
 ```
 
 Using Maven:
@@ -33,8 +36,8 @@ Using Maven:
 ```xml
 <dependency>
     <groupId>com.ibm</groupId>
-    <artifactId>gpu-enabler_2.10</artifactId>
-    <version>1.0.0</version>
+    <artifactId>gpu-enabler_2.11</artifactId>
+    <version>2.0.0</version>
 </dependency>
 ```
 
@@ -42,7 +45,7 @@ This library can also be added to Spark jobs launched through `spark-shell` or `
 For example, to include it when starting the spark shell:
 
 ```
-$ bin/spark-shell --packages com.ibm:gpu-enabler_2.10:1.0.0
+$ bin/spark-shell --packages com.ibm:gpu-enabler_2.11:2.0.0
 ```
 
 Unlike using `--jars`, using `--packages` ensures that this library and its dependencies will be added to the classpath.
@@ -54,8 +57,8 @@ The `--packages` argument can also be used with `bin/spark-submit`.
 * Support x86_64 and ppc64le
 * Support OpenJDK and IBM JDK
 * Support NVIDIA GPU with CUDA (we confirmed with CUDA 7.0)
-* Support CUDA 7.0 and 7.5 (should work with CUDA 6.0 and 6.5)
-* Support scalar variables in primitive scalar types and primitive array in RDD
+* Support CUDA8.0, CUDA 7.0 and 7.5 (should work with CUDA 6.0 and 6.5)
+* Support scalar variables in primitive scalar types and primitive array in Spark RDD & Dataset.
 
 ## Examples
 
@@ -63,6 +66,8 @@ The recommended way to load and use GPU kernel is by using the following APIs, w
 
 The package comes with a set of examples. They can be tried out as follows,
 `./bin/run-example GpuEnablerExample`
+
+Sample programs can be found [here](https://github.com/IBMSparkGPU/GPUEnabler/blob/master/examples/src/main/scala/com/ibm/gpuenabler/).
 
 The Nvidia kernel used in these sample programs is available for download
 [here](https://github.com/IBMSparkGPU/GPUEnabler/blob/master/examples/src/main/resources/GpuEnablerExamples.ptx).
@@ -73,34 +78,43 @@ The source for this kernel can be found [here](https://github.com/IBMSparkGPU/GP
 
 ```scala
 // import needed for the Spark GPU method to be added
-import com.ibm.gpuenabler.CUDARDDImplicits._
-import com.ibm.gpuenabler.CUDAFunction
+import com.ibm.gpuenabler.CUDADSImplicits._
+import com.ibm.gpuenabler.DSCUDAFunction
 
 // Load a kernel function from the GPU kernel binary 
-val ptxURL = SparkGPULR.getClass.getResource("/GpuEnablerExamples.ptx")
+val ptxURL = "/GpuEnablerExamples.ptx"
 
-val mapFunction = new CUDAFunction(
-        "multiplyBy2",      // Native GPU function to multiple a given no. by 2 and return the result
-        Array("this"),      // Input arguments 
-        Array("this"),      // Output arguments 
-        ptxURL)
-        
-val reduceFunction = new CUDAFunction(
-        "sum",                  // Native GPU function to sum the input argument and return the result
-        Array("this"),          // Input arguments 
-        Array("this"),          // Output arguments
-        ptxURL)
+val mulFunc = DSCUDAFunction(
+      "multiplyBy2",        // Native GPU function to multiple a given no. by 2 and return the result
+      Seq("value"),         // Input arguments 
+      Seq("value"),         // Output arguments 
+      ptxURL)
+
+val dimensions = (size: Long, stage: Int) => stage match {
+  case 0 => (64, 256, 1, 1, 1, 1)
+  case 1 => (1, 1, 1, 1, 1, 1)
+}
+val gpuParams = gpuParameters(dimensions)
+
+val sumFunc = DSCUDAFunction(
+      "suml",
+      Array("value"),
+      Array("value"),
+      ptxURL,
+      Some((size: Long) => 2),
+      Some(gpuParams), outputSize=Some(1))
         
 // 1. Apply a transformation ( multiple all the values of the RDD by 2)
 //    (Note: Conversion of row based formatting to columnar format which is understandable
 //           by GPU is done internally )
 // 2. Trigger a reduction action (sum up all the values and return the result)
-val output = sc.parallelize(1 to n, 1)
-        .mapExtFunc((x: Int) => 2 * x, mapFunction)  
-        .reduceExtFunc((x: Int, y: Int) => x + y, reduceFunction)  
+
+val output = ss.range(1, N+1, 1, 10)
+        .mapExtFunc(_ * 2, mulFunc)
+        .reduceExtFunc(_ + _, sumFunc)
 ```
 
-### Java API
+### Java API (Supported only on RDD)
 
 ```java
 // import needed for the Spark GPU method to be added
@@ -164,6 +178,4 @@ Note:
 ## Testing
 To run the tests, you should run `mvn test`.
 
-## On-going work
-* Leverage existing schema awareness in DataFrame/DataSet
-* Provide new DataFrame/DataSet operators to call CUDA Kernels
+
