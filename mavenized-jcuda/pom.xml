@@ -3,26 +3,64 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-  <parent>
-    <groupId>com.ibm</groupId>
-    <artifactId>gpu-enabler-parent</artifactId>
-    <version>1.0.0</version>
-    <relativePath>../pom.xml</relativePath>
-  </parent>
+    <parent>
+        <groupId>com.ibm</groupId>
+        <artifactId>gpu-enabler-parent</artifactId>
+        <version>1.0.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
 
     <groupId>org.mystic</groupId>
     <artifactId>mavenized-jcuda</artifactId>
-    <version>0.1.2</version>
+    <version>0.8.0</version>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!-- Set needed version of JCuda here >
-        <jcuda.version>0.7.5b</jcuda.version -->
+        <!-- Set needed version of JCuda here -->
+        <!--jcuda.version>0.8.0</jcuda.version-->
+        <!-- Set needed version of JCudnn here -->
+        <!--jcudnn.version>0.8.0</jcudnn.version-->
+        <!-- github.global.server>github</github.global.server-->
     </properties>
     <dependencies>
         <!--JCuda Java libs-->
         <dependency>
             <groupId>jcuda</groupId>
+            <artifactId>jcublas</artifactId>
+            <version>${jcuda.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>jcuda</groupId>
+            <artifactId>jcudnn</artifactId>
+            <version>${jcudnn.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>jcuda</groupId>
             <artifactId>jcuda</artifactId>
+            <version>${jcuda.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>jcuda</groupId>
+            <artifactId>jcufft</artifactId>
+            <version>${jcuda.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>jcuda</groupId>
+            <artifactId>jcurand</artifactId>
+            <version>${jcuda.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>jcuda</groupId>
+            <artifactId>jcusparse</artifactId>
+            <version>${jcuda.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>jcuda</groupId>
+            <artifactId>jcusolver</artifactId>
+            <version>${jcuda.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>jcuda</groupId>
+            <artifactId>jnvgraph</artifactId>
             <version>${jcuda.version}</version>
         </dependency>
     </dependencies>
@@ -45,14 +83,143 @@
                     <target>1.7</target>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>2.9</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <stripVersion>true</stripVersion>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--usage of exec plugin-->
+            <!--mvn exec:exec -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>1.3.2</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <executable>java</executable>
+                    <arguments>
+                        <argument>-Djava.library.path=${project.build.directory}/lib</argument>
+                        <argument>-classpath</argument>
+                        <!-- automatically creates the classpath using all project dependencies,
+                                   also adding the project build directory -->
+                        <classpath/>
+                        <!--Replace with your class reference if any -->
+                        <argument>org.mystic.cuda.JCudaRuntimeTest</argument>
+                    </arguments>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
     <!--Set of auto detected profiles for different OS family/architecture-->
     <profiles>
+
+        <!--
+            Assuming that user is running on windows, then to deploy the jar:
+            // Test if the jar is created with all the dependency
+            mvn clean package -P deploy-jar,!windows-x86_64
+            // Deploy it on github
+            mvn clean deploy -P deploy-jar,!windows-x86_64
+         -->
+        <profile>
+            <id>deploy-jar</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-deploy-plugin</artifactId>
+                        <version>2.8.2</version>
+                        <configuration>
+                            <altDeploymentRepository>
+                                internal.repo::default::file://${project.build.directory}/mvn-repo
+                            </altDeploymentRepository>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-assembly-plugin</artifactId>
+                        <version>2.6</version>
+                        <configuration>
+                            <!-- get all project dependencies -->
+                            <descriptorRefs>
+                                <descriptorRef>jar-with-dependencies</descriptorRef>
+                            </descriptorRefs>
+                            <!-- MainClass in mainfest make a executable jar -->
+                            <archive>
+                                <manifest>
+                                    <mainClass>org.mystic.cuda.JCudaRuntimeTest</mainClass>
+                                </manifest>
+                            </archive>
+
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>make-assembly</id>
+                                <!-- bind to the packaging phase -->
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>single</goal>
+                                </goals>
+                                <configuration>
+                                    <descriptor>src/assembly/dep.xml</descriptor>
+                                    <appendAssemblyId>false</appendAssemblyId>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <plugin>
+                        <groupId>com.github.github</groupId>
+                        <artifactId>site-maven-plugin</artifactId>
+                        <version>0.11</version>
+                        <configuration>
+                            <message>Maven artifacts for ${project.version}</message>  <!-- git commit message -->
+                            <noJekyll>true
+                            </noJekyll>                                  <!-- disable webpage processing -->
+                            <outputDirectory>${project.build.directory}/mvn-repo
+                            </outputDirectory> <!-- matches distribution management repository url above -->
+                            <branch>refs/heads/mvn-repo</branch>                       <!-- remote branch name -->
+                            <includes>
+                                <include>**/*</include>
+                            </includes>
+                            <repositoryName>mavenized-jcuda</repositoryName>      <!-- github repo name -->
+                            <repositoryOwner>MysterionRise</repositoryOwner>    <!-- github username  -->
+                            <merge>true</merge>
+                        </configuration>
+                        <executions>
+                            <!-- run site-maven-plugin's 'site' target as part of the build's normal 'deploy' phase -->
+                            <execution>
+                                <goals>
+                                    <goal>site</goal>
+                                </goals>
+                                <phase>deploy</phase>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
         <!--New profile for JCuda version 0.6.0RC for Win-x86_64 and higher
 
-            will work automatically, thanks to auto activation
-        -->
+           will work automatically, thanks to auto activation
+       -->
         <profile>
             <id>windows-x86_64</id>
             <activation>
@@ -68,6 +235,20 @@
                 <!--JCuda native dll libs-->
                 <dependency>
                     <groupId>jcuda</groupId>
+                    <artifactId>JCublas2</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCublas</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
                     <artifactId>JCudaDriver</artifactId>
                     <version>${jcuda.version}</version>
                     <classifier>${dllJ.version}</classifier>
@@ -76,6 +257,34 @@
                 <dependency>
                     <groupId>jcuda</groupId>
                     <artifactId>JCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCufft</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCurand</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCusparse</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCusolver</artifactId>
                     <version>${jcuda.version}</version>
                     <classifier>${dllJ.version}</classifier>
                     <type>dll</type>
@@ -101,6 +310,20 @@
                 <!--JCuda native dll libs-->
                 <dependency>
                     <groupId>jcuda</groupId>
+                    <artifactId>JCublas2</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCublas</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
                     <artifactId>JCudaDriver</artifactId>
                     <version>${jcuda.version}</version>
                     <classifier>${dllJ.version}</classifier>
@@ -109,6 +332,27 @@
                 <dependency>
                     <groupId>jcuda</groupId>
                     <artifactId>JCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCufft</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCurand</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCusparse</artifactId>
                     <version>${jcuda.version}</version>
                     <classifier>${dllJ.version}</classifier>
                     <type>dll</type>
@@ -132,21 +376,55 @@
             </properties>
             <!--JCuda native so libs-->
             <dependencies>
-                <dependency>
-                    <groupId>jcuda</groupId>
-                    <artifactId>libJCudaDriver</artifactId>
-                    <version>${jcuda.version}</version>
-                    <classifier>${libJ.version}</classifier>
-                    <type>so</type>
-                </dependency>
-                <dependency>
-                    <groupId>jcuda</groupId>
-                    <artifactId>libJCudaRuntime</artifactId>
-                    <version>${jcuda.version}</version>
-                    <classifier>${libJ.version}</classifier>
-                    <type>so</type>
-                </dependency>
-            </dependencies>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcublas-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcudnn-natives</artifactId>
+                  <version>${jcudnn.version}</version>
+                  <classifier>${libJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcuda-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcufft-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcurand-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcusparse-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcusolver-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jnvgraph-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+              </dependency>
+          </dependencies>
         </profile>
 
         <!--
@@ -169,6 +447,20 @@
             <dependencies>
                 <dependency>
                     <groupId>jcuda</groupId>
+                    <artifactId>libJCublas2</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCublas</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
                     <artifactId>libJCudaDriver</artifactId>
                     <version>${jcuda.version}</version>
                     <classifier>${libJ.version}</classifier>
@@ -177,6 +469,34 @@
                 <dependency>
                     <groupId>jcuda</groupId>
                     <artifactId>libJCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCufft</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCurand</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCusparse</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCusolver</artifactId>
                     <version>${jcuda.version}</version>
                     <classifier>${libJ.version}</classifier>
                     <type>so</type>
@@ -202,21 +522,63 @@
             </properties>
             <!--JCuda native so libs-->
             <dependencies>
-                <dependency>
-                    <groupId>jcuda</groupId>
-                    <artifactId>libJCudaDriver</artifactId>
-                    <version>${jcuda.version}</version>
-                    <classifier>${libJ.version}</classifier>
-                    <type>so</type>
-                </dependency>
-                <dependency>
-                    <groupId>jcuda</groupId>
-                    <artifactId>libJCudaRuntime</artifactId>
-                    <version>${jcuda.version}</version>
-                    <classifier>${libJ.version}</classifier>
-                    <type>so</type>
-                </dependency>
-            </dependencies>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcublas-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+                  <type>jar</type>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcudnn-natives</artifactId>
+                  <version>${jcudnn.version}</version>
+                  <classifier>${libJ.version}</classifier>
+                  <type>jar</type>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcuda-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+                  <type>jar</type>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcufft-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+                  <type>jar</type>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcurand-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+                  <type>jar</type>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcusparse-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+                  <type>jar</type>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcusolver-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+                  <type>jar</type>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jnvgraph-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+                  <type>jar</type>
+              </dependency>
+          </dependencies>
         </profile>
 
         <!--New profile for JCuda version 0.6.0 for Mac x86_64
@@ -236,19 +598,343 @@
             </properties>
             <!--JCuda native dylib libs-->
             <dependencies>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcublas-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${dylibJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcudnn-natives</artifactId>
+                  <version>${jcudnn.version}</version>
+                  <classifier>${dylibJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcuda-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${dylibJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcufft-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${dylibJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcurand-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${dylibJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcusparse-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${dylibJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcusolver-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${dylibJ.version}</classifier>
+              </dependency>
+              <dependency>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jnvgraph-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${dylibJ.version}</classifier>
+              </dependency>
+            </dependencies>
+        </profile>
+
+
+        <!--Out of date profile for JCuda versions 0.5.0, 0.5.5
+        Won't set up automatically, since newest version is always a more important
+        Thanks to Maven bug - http://jira.codehaus.org/browse/MNG-4565
+
+        UPD. It was solved by me, but we need to use Maven 3.2.2 that will come soon, to avoid that problem
+        -->
+        <profile>
+            <id>windows-x86_64_old</id>
+            <properties>
+                <dllJ.version>windows-x86_64</dllJ.version>
+            </properties>
+            <dependencies>
+                <!--JCuda native dll libs-->
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCublas2</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCublas</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCudaDriver</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCufft</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCurand</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCusparse</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCusparse2</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+            </dependencies>
+        </profile>
+        <!--Out of date profile for JCuda versions 0.5.0, 0.5.5
+        Won't set up automatically, since newest version is always a more important
+        Thanks to Maven bug - http://jira.codehaus.org/browse/MNG-4565
+
+        UPD. It was solved by me, but we need to use Maven 3.2.2 that will come soon, to avoid that problem
+        -->
+        <profile>
+            <id>windows-x86_old</id>
+            <properties>
+                <dllJ.version>windows-x86</dllJ.version>
+            </properties>
+            <dependencies>
+                <!--JCuda native dll libs-->
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCublas2</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCublas</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCudaDriver</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCufft</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCurand</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCusparse</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCusparse2</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+            </dependencies>
+        </profile>
+        <!--Out of date profile for JCuda versions 0.5.0, 0.5.5
+        Won't set up automatically, since newest version is always a more important
+        Thanks to Maven bug - http://jira.codehaus.org/browse/MNG-4565
+
+        UPD. It was solved by me, but we need to use Maven 3.2.2 that will come soon, to avoid that problem
+        -->
+        <profile>
+            <id>unix-x86_64_old</id>
+            <properties>
+                <libJ.version>linux-x86_64</libJ.version>
+            </properties>
+            <!--JCuda native so libs-->
+            <dependencies>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCublas2</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCublas</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
                 <dependency>
                     <groupId>jcuda</groupId>
                     <artifactId>libJCudaDriver</artifactId>
                     <version>${jcuda.version}</version>
-                    <classifier>${dylibJ.version}</classifier>
-                    <type>dylib</type>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
                 </dependency>
                 <dependency>
                     <groupId>jcuda</groupId>
                     <artifactId>libJCudaRuntime</artifactId>
                     <version>${jcuda.version}</version>
-                    <classifier>${dylibJ.version}</classifier>
-                    <type>dylib</type>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCufft</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCurand</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCusparse</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCusparse2</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+            </dependencies>
+        </profile>
+        <!--Out of date profile for JCuda versions 0.5.0, 0.5.5 for Linux-x86
+
+        Still work automatically, until newest versions of this arch will be available
+        -->
+        <profile>
+            <id>unix-x86_old</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <arch>i386</arch>
+                </os>
+            </activation>
+            <properties>
+                <libJ.version>linux-x86</libJ.version>
+            </properties>
+            <!--JCuda native so libs-->
+            <dependencies>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCublas2</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCublas</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCudaDriver</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCufft</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCurand</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCusparse</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCusparse2</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
                 </dependency>
             </dependencies>
         </profile>

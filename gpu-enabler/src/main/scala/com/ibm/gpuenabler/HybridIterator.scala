@@ -146,7 +146,7 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
       if (kpd.devPtr == null) {
         val devPtr = GPUSparkEnv.get.cudaManager.allocateGPUMemory(kpd.sz)
         cuMemcpyHtoDAsync(devPtr, kpd.cpuPtr, kpd.sz, cuStream)
-	cuCtxSynchronize()
+        cuCtxSynchronize()
         val gPtr = Pointer.to(devPtr)
         KernelParameterDesc(kpd.cpuArr, kpd.cpuPtr, devPtr, gPtr, kpd.sz, kpd.symbol)
       } else {
@@ -188,6 +188,10 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
             val y = new Array[Double](kpd.sz / DOUBLE_COLUMN.bytes)
             (y, Pointer.to(y))
           }
+          case c if c == LONG_COLUMN => {
+            val y = new Array[Long](kpd.sz / LONG_COLUMN.bytes)
+            (y, Pointer.to(y))
+          }
           case c if c == INT_ARRAY_COLUMN => {
             val y = new Array[Int](kpd.sz / INT_COLUMN.bytes)
             (y, Pointer.to(y))
@@ -202,6 +206,10 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
           }
           case c if c == DOUBLE_ARRAY_COLUMN => {
             val y = new Array[Double](kpd.sz / DOUBLE_COLUMN.bytes)
+            (y, Pointer.to(y))
+          }
+          case c if c == LONG_ARRAY_COLUMN => {
+            val y = new Array[Long](kpd.sz / LONG_COLUMN.bytes)
             (y, Pointer.to(y))
           }
         }
@@ -305,6 +313,12 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
               inputArr.foreach(x => buffer.putDouble(priv_getter(x).asInstanceOf[Double]))
               (ptr, size)
             }
+            case c if c == LONG_COLUMN => {
+              val size = col.memoryUsage(inputArr.length).toInt
+              val (ptr, buffer) = allocPinnedHeap(size)
+              inputArr.foreach(x => buffer.putLong(priv_getter(x).asInstanceOf[Long]))
+              (ptr, size)
+            }
             case c if c == INT_ARRAY_COLUMN => {
               // retrieve the first element to determine the array size.
               val arrLength = priv_getter(inputArr.head).asInstanceOf[Array[Int]].length
@@ -357,6 +371,19 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
               })
               (ptr, size)
             }
+            case c if c == LONG_ARRAY_COLUMN => {
+              // retrieve the first element to determine the array size.
+              val arrLength = priv_getter(inputArr.head).asInstanceOf[Array[Long]].length
+              val size = col.memoryUsage(inputArr.length * arrLength).toInt
+              val (ptr, buffer) = allocPinnedHeap(size)
+              inputArr.foreach(x => {
+                buffer.position(bufferOffset)
+                buffer.asLongBuffer().put(priv_getter(x).asInstanceOf[Array[Long]], 0, arrLength)
+                bufferOffset += arrLength * LONG_COLUMN.bytes
+                // bufferOffset += col.memoryUsage(arrLength).toInt
+              })
+              (ptr, size)
+            }
           }
         }
         val devPtr = GPUSparkEnv.get.cudaManager.allocateGPUMemory(colDataSize)
@@ -402,6 +429,9 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
           case c if c == DOUBLE_COLUMN => {
             numentries * DOUBLE_COLUMN.bytes
           }
+          case c if c == LONG_COLUMN => {
+            numentries * LONG_COLUMN.bytes
+          }
           case c if c == INT_ARRAY_COLUMN => {
             col._2 * numentries * INT_COLUMN.bytes
           }
@@ -413,6 +443,9 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
           }
           case c if c == DOUBLE_ARRAY_COLUMN => {
             col._2 * numentries * DOUBLE_COLUMN.bytes
+          }
+          case c if c == LONG_ARRAY_COLUMN => {
+            col._2 * numentries * LONG_COLUMN.bytes
           }
           // TODO : Handle error condition
         }
@@ -453,6 +486,7 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
       case  BYTE_COLUMN => cpuArr(index).asInstanceOf[Byte]
       case  FLOAT_COLUMN => cpuArr(index).asInstanceOf[Float]
       case  DOUBLE_COLUMN => cpuArr(index).asInstanceOf[Double]
+      case  LONG_COLUMN => cpuArr(index).asInstanceOf[Long]
       case  INT_ARRAY_COLUMN => {
         val array = new Array[Int](outsize)
         var runIndex = index
@@ -487,6 +521,16 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
 
         for (i <- 0 to outsize - 1) {
           array(i) = cpuArr(runIndex).asInstanceOf[Double]
+          runIndex += 1
+        }
+        array
+      }
+      case  LONG_ARRAY_COLUMN => {
+        val array = new Array[Long](outsize)
+        var runIndex = index
+
+        for (i <- 0 to outsize - 1) {
+          array(i) = cpuArr(runIndex).asInstanceOf[Long]
           runIndex += 1
         }
         array

@@ -14,28 +14,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+ 
 package com.ibm.gpuenabler
 
-import java.util.Date
 import java.net.URL
 import jcuda.Pointer
 import jcuda.driver.JCudaDriver._
 import jcuda.driver.{CUdeviceptr, CUmodule, JCudaDriver}
 import jcuda.runtime.JCuda
 import org.apache.commons.io.IOUtils
-import org.apache.spark.SparkException
 import org.slf4j.{Logger, LoggerFactory}
-import scala.collection.mutable.HashMap
-import scala.collection.mutable
-import java.text.SimpleDateFormat
-
+import java.util.concurrent.ConcurrentHashMap
+import scala.collection.JavaConverters._
+ 
 private[gpuenabler] object CUDAManagerCachedModule {
-  private val cachedModules = new HashMap[(String, Int), CUmodule]
-  def getInstance() : HashMap[(String, Int), CUmodule] = { cachedModules }
-}
+  private val cachedModules = new ConcurrentHashMap[(String, Int), CUmodule].asScala
 
-private[gpuenabler] class CUDAManager {
+  def getInstance : collection.concurrent.Map[(String, Int), CUmodule] = { cachedModules }
+}
+ 
+private class CUDAManager {
   // Initialization
   // This is supposed to be called before ANY other JCuda* call to ensure we have properly loaded
   // native jCuda library and cuda context
@@ -44,17 +42,14 @@ private[gpuenabler] class CUDAManager {
     JCudaDriver.setExceptionsEnabled(true)
     JCudaDriver.cuInit(0)
     isGPUEnabled = true
+    JCuda.cudaDeviceReset()
+    CUDAManagerCachedModule.getInstance.clear
   } catch {
-    case ex: UnsatisfiedLinkError =>
+    case _: Throwable =>
       CUDAManager.logger.info("Could not initialize CUDA, because native jCuda libraries were " +
-      "not detected - continue to use CPU for execution")
-    case ex: NoClassDefFoundError =>
-      CUDAManager.logger.info("Could not initialize CUDA, because native jCuda libraries were " +
-      "not detected - continue to use CPU for execution")
-    case ex: Throwable =>
-      throw new SparkException("Could not initialize CUDA because of unknown reason", ex)
+        "not detected - continue to use CPU for execution")
   }
-
+ 
   // Returns the number of GPUs available in this node
   private[gpuenabler] def gpuCount = {
     val count = new Array[Int](1)
@@ -62,20 +57,23 @@ private[gpuenabler] class CUDAManager {
     count(0)
   }
 
-  // private[gpuenabler] def cachedLoadModule(resource: Either[URL, (String, String)]): CUmodule = {
-  // TODO : change it back to private after development
+  def getModule(fname : String) : CUmodule = {
+    val ptxURL = getClass.getResource(fname)
+    val clm = cachedLoadModule(Left(ptxURL))
+    clm
+  }
+ 
   private[gpuenabler] def cachedLoadModule(resource: Either[URL, (String, String)]): CUmodule = {
     var resourceURL: URL = null
     var key: String = null
     var ptxString: String = null
     resource match {
       case Left(resURL) =>
-        key = resURL.toString()
+        key = resURL.toString
         resourceURL = resURL
-      case Right((k, v)) => {
+      case Right((k, v)) =>
         key = k
         ptxString = v
-      }
     }
 
     val devIx = new Array[Int](1)
@@ -96,10 +94,10 @@ private[gpuenabler] class CUDAManager {
         } else {
           moduleBinaryData = ptxString.getBytes()
         }
-
-        val moduleBinaryData0 = new Array[Byte](moduleBinaryData.length + 1)
-        System.arraycopy(moduleBinaryData, 0, moduleBinaryData0, 0, moduleBinaryData.length)
-        moduleBinaryData0(moduleBinaryData.length) = 0
+        val moduleBinaryDataLength = moduleBinaryData.length
+        val moduleBinaryData0 = new Array[Byte](moduleBinaryDataLength + 1)
+        System.arraycopy(moduleBinaryData, 0, moduleBinaryData0, 0, moduleBinaryDataLength)
+        moduleBinaryData0(moduleBinaryDataLength) = 0
         val module = new CUmodule
         JCudaDriver.cuModuleLoadData(module, moduleBinaryData0)
         CUDAManagerCachedModule.getInstance.put((key, devIx(0)), module)
@@ -107,7 +105,7 @@ private[gpuenabler] class CUDAManager {
       })
     }
   }
-
+ 
   private[gpuenabler] def computeDimensions(size: Long): (Int, Int) = {
     val maxBlockDim = {
       import jcuda.driver.{CUdevice, CUdevice_attribute}
@@ -121,14 +119,14 @@ private[gpuenabler] class CUDAManager {
     assert(size <= maxBlockDim * Int.MaxValue.toLong)
     (((size + maxBlockDim - 1) / maxBlockDim).toInt, maxBlockDim)
   }
-
+ 
   def allocateGPUMemory(sz: Int): CUdeviceptr = {
     unCacheGPULRU(sz)
     val deviceInput = new CUdeviceptr()
     cuMemAlloc(deviceInput, sz)
     deviceInput
   }
-
+ 
   private[gpuenabler] def freeGPUMemory(ptr: Pointer) {
     JCuda.cudaFree(ptr)
   }
@@ -158,7 +156,7 @@ private[gpuenabler] class CUDAManager {
     }
   }
 }
-
+ 
 private[gpuenabler] object CUDAManager {
   private final val logger: Logger = LoggerFactory.getLogger(classOf[CUDAManager])
 }
