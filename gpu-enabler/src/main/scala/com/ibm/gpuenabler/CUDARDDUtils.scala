@@ -293,11 +293,11 @@ object CUDARDDImplicits {
 
    /**
      * This function judges whether a RDD's dependency type is
-     * to devide a stage or not.
+     * to divide a stage or not.
      * when implement a new GPUPartitionsRDD,
      * to classify and write a new it on this method's "match" branch avoids
      * redundant data transfers between GPU APIs.
-     * Classified number 1 and 0 is a dependency type deviding a stage
+     * Classified number 1 and 0 is a dependency type dividing a stage
      * or not respectively.
      */
 
@@ -442,7 +442,7 @@ object CUDARDDImplicits {
           }
         }
       }
-      autoCacheGPU(rdd)
+      if (GPUSparkEnv.isAutoCacheEnabled) autoCacheGPU(rdd)
       sc.runJob(rdd, reducePartition, 0 until rdd.partitions.length, mergeResult)
       jobResult.getOrElse(throw new UnsupportedOperationException("empty collection"))
     }
@@ -489,7 +489,7 @@ object CUDARDDImplicits {
           }
         }
       }
-      autoCacheGPU(rdd)
+      if (GPUSparkEnv.isAutoCacheEnabled) autoCacheGPU(rdd)
       sc.runJob(rdd, reducePartition, 0 until rdd.partitions.length, mergeResult)
       jobResult.getOrElse(throw new UnsupportedOperationException("empty collection"))
     }

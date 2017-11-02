@@ -21,7 +21,6 @@ import java.io.{ObjectInputStream, ObjectOutputStream}
 
 import org.apache.spark.gpuenabler.CUDAUtils
 import org.apache.spark.util.Utils
-import org.apache.spark.gpuenabler.CUDAUtils.sparkUtils.tryOrIOException
 
 
 import scala.collection.immutable.HashMap
@@ -260,7 +259,7 @@ private[gpuenabler] class ColumnSchema(
     out.writeObject(propertyChain)
   }
 
-  private def readObject(in: ObjectInputStream): Unit = CUDAUtils.sparkUtils.tryOrIOException { 
+  private def readObject(in: ObjectInputStream): Unit = CUDAUtils.sparkUtils.tryOrIOException {
     val mirror = ColumnPartitionSchema.mirror
     _columnType = in.readObject().asInstanceOf[ColumnType]
     _terms =

@@ -153,6 +153,7 @@ private[gpuenabler] class GPUMemoryManagerMasterEndPoint(val rpcEnv: _RpcEnv)
       context.reply (true)
     case AutoCacheGPU(rddId : Int) =>
       autoCacheGPU(rddId)
+      context.reply (true)
     case UncacheGPUDS(lp : String) =>
       unCacheGPU(lp)
       context.reply (true)
@@ -326,16 +327,16 @@ private[gpuenabler] class GPUMemoryManager(val executorId : String,
     )
     if(autoCachedGPURDDs.size > 0){
       val rddId = autoCachedGPURDDs.head
-    autoCachedGPURDDs -= rddId
+      autoCachedGPURDDs -= rddId
 
-    for ((name, ptr) <- cachedGPUPointers) {
-      if (name.startsWith("rdd_" + rddId)) {
-        import com.ibm.gpuenabler.GPUSparkEnv
-        // TODO: Free GPU memory
-        GPUSparkEnv.get.cudaManager.freeGPUMemory(ptr.devPtr)
-        cachedGPUPointers.remove(name)
+      for ((name, ptr) <- cachedGPUPointers) {
+        if (name.startsWith("rdd_" + rddId)) {
+          import com.ibm.gpuenabler.GPUSparkEnv
+          // TODO: Free GPU memory
+          GPUSparkEnv.get.cudaManager.freeGPUMemory(ptr.devPtr)
+          cachedGPUPointers.remove(name)
+        }
       }
-    }
     }
   }
 

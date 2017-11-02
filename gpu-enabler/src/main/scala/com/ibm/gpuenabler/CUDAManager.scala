@@ -121,7 +121,7 @@ private class CUDAManager {
   }
  
   def allocateGPUMemory(sz: Int): CUdeviceptr = {
-    unCacheGPULRU(sz)
+    if (GPUSparkEnv.isAutoCacheEvictEnabled)  unCacheGPULRU(sz)
     val deviceInput = new CUdeviceptr()
     cuMemAlloc(deviceInput, sz)
     deviceInput
@@ -133,24 +133,18 @@ private class CUDAManager {
   
   private[gpuenabler] def unCacheGPULRU(sz: Int) = {
     /* remove cached RDDs on GPU automatically
-     * without ignoring user's cache (unCache) indication.
+     * without ignoring  cache (unCache), which programmers inserted.
      * Since spark can't estimate RDD size via distributed data
      * on eacn nodes, this method removes cached RDDs on GPU
      * in the partitions units.
      * this method is called on allocateGPUMemory.
      * In order to reuse cached RDDs on gpu as much as possible,
-     * adopt LRU as a cache strategy.
-     *
-     * gpuMemThreshold is a threshold for safety of a GPU memory.
-     * when this variable has "1000000000",
-     * if GPU free space become less than "1000000000B (1 GB)",
-     * auto cached RDD on GPU is evicted on a LRU policy.
+     * adopt LRU manner.
      */
-    val gpuMemThreshold = 1000000000 //1GB
     val freeMemArray = new Array[Long](1)
     val totalMemArray = new Array[Long](1)
     jcuda.runtime.JCuda.cudaMemGetInfo(freeMemArray, totalMemArray)
-    while( (freeMemArray(0) - sz) < gpuMemThreshold ) {
+    while( (totalMemArray(0) - freeMemArray(0) + sz) > GPUSparkEnv.gpuMemCap ) {
       GPUSparkEnv.get.gpuMemoryManager.autoUnCacheGPU(0)
       jcuda.runtime.JCuda.cudaMemGetInfo(freeMemArray, totalMemArray)
     }
