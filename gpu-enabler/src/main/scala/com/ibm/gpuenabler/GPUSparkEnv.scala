@@ -90,7 +90,15 @@ private[gpuenabler] object GPUSparkEnv {
           if (env.isGPUEnabled) {
             val executorId = env.executorId match {
               case "driver" => 0
-              case _ => SparkEnv.get.executorId.toInt
+              case _ => 
+                val execIdStr = SparkEnv.get.executorId
+                if (execIdStr.forall( _.isDigit )) {
+                  execIdStr.substring(0, Math.min(execIdStr.length, 5)).toInt
+                } else {
+                  val stripNum = ("[0-9]".r findAllIn execIdStr).mkString("")
+                  if (stripNum.isEmpty) 0
+                  else stripNum.substring(0, Math.min(stripNum.length, 5)).toInt
+                }
             }
 
             env.gpuDevice = executorId % env.gpuCount
