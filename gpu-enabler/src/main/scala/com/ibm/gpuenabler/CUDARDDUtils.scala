@@ -236,6 +236,11 @@ object JavaCUDARDD {
   */
 object CUDARDDImplicits {
 
+  private[gpuenabler] abstract class apiType
+  private[gpuenabler] case object CPU_ANYDEP extends apiType
+  private[gpuenabler] case object GPU_NARROW extends apiType
+  private[gpuenabler] case object GPU_WIDE extends apiType
+
   implicit class CUDARDDFuncs[T: ClassTag](rdd: RDD[T])
     extends Serializable {
 
@@ -251,15 +256,15 @@ object CUDARDDImplicits {
         *
         * gpuApiFlag shows the child type of a RDD.
         * When the child RDD's API
-        *  case 0 => CPU API (ex, mapRDD)
-        *  case 1 => GPU API (don't divide a stage. ex, mapGPURDD)
-        *  case 2 => GPU API (divide a stage into two. ex,shuffleGPURDD)
+        *  case CPU_ANYDEP => CPU API (ex, mapRDD)
+        *  case GPU_NARROW => GPU API which is executed on single node (don't divide a stage. ex, mapGPURDD).
+        *  case GPU_WIDE => GPU API which is executed on multiple nodes with communication (divide a stage into two. ex,shuffleGPURDD).
         */
 
-      if(judgeApiType(rdd) == 1) rdd.autoCacheGpu()
-      trackLineage(rdd, 1)
+      if(judgeApiType(rdd) == GPU_NARROW) rdd.autoCacheGpu()
+      trackLineage(rdd, GPU_NARROW)
 
-      def trackLineage(rdd: RDD[_], gpuApiFlag: Int): Unit = {
+      def trackLineage(rdd: RDD[_], gpuApiFlag: apiType): Unit = {
         val len = rdd.dependencies.length
         len match {
           case 0 => Unit
@@ -279,15 +284,15 @@ object CUDARDDImplicits {
         }
       }
 
-      def classifyDep(rdd: RDD[_], apiType: Int, gpuApiFlag: Int): Unit = {
+      def classifyDep(rdd: RDD[_], apiType: apiType, gpuApiFlag: apiType): Unit = {
         apiType match {
-          case 0 =>
-            trackLineage(rdd, 0)
-          case 1 =>
-            if(gpuApiFlag == 1) rdd.autoCacheGpu()
-            trackLineage(rdd, 1)
-          case 2 =>
-            trackLineage(rdd, 1)
+          case CPU_ANYDEP =>
+            trackLineage(rdd, CPU_ANYDEP)
+          case GPU_NARROW =>
+            if(gpuApiFlag == GPU_NARROW) rdd.autoCacheGpu()
+            trackLineage(rdd, GPU_NARROW)
+          case GPU_WIDE =>
+            trackLineage(rdd, GPU_NARROW)
         }
       }
 
@@ -301,14 +306,14 @@ object CUDARDDImplicits {
      * or not respectively.
      */
 
-      def judgeApiType(rdd: RDD[_]): Int = {
+      def judgeApiType(rdd: RDD[_]): apiType = {
         val rddType = rdd.getClass()
         val mapGPUPartitionsClass = classOf[MapGPUPartitionsRDD[_,_]]
         val convertGPUPartitionsClass = classOf[ConvertGPUPartitionsRDD[_]]
         rddType match {
-          case x if x == mapGPUPartitionsClass => 1
-          case x if x == convertGPUPartitionsClass=> 1
-          case _ => 0
+          case x if x == mapGPUPartitionsClass => GPU_NARROW
+          case x if x == convertGPUPartitionsClass=> GPU_NARROW
+          case _ => CPU_ANYDEP
         }
       }
     }

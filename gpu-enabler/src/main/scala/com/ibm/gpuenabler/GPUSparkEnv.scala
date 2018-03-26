@@ -101,10 +101,10 @@ private[gpuenabler] object GPUSparkEnv {
     val freeMemArray = new Array[Long](1)
     val totalMemArray = new Array[Long](1)
     jcuda.runtime.JCuda.cudaMemGetInfo(freeMemArray, totalMemArray)
-    val evictThreshold = SparkEnv.get.conf.getInt("spark.gpuenabler.autocacheevict.gpumem", 0)
+    val evictThreshold = SparkEnv.get.conf.getInt("spark.gpuenabler.autocacheevict.gpumem", 0) * 1000000.toLong
     if (isAutoCacheEvictEnabled) {
       if (evictThreshold <= totalMemArray(0) && evictThreshold > 0){
-        evictThreshold * 1000000.toLong
+        evictThreshold
       } else {
         totalMemArray(0)
       }
