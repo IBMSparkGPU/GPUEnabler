@@ -78,7 +78,6 @@ private class CUDAManager {
 
     val devIx = new Array[Int](1)
     JCuda.cudaGetDevice(devIx)
-
     synchronized {
       // Since multiple modules cannot be loaded into one context in runtime API,
       //   we use singleton cache http://stackoverflow.com/questions/32502375/
@@ -101,7 +100,7 @@ private class CUDAManager {
         moduleBinaryData0(moduleBinaryDataLength) = 0
         val module = new CUmodule
         JCudaDriver.cuModuleLoadData(module, moduleBinaryData0)
-	CUDAManagerCachedModule.getInstance.put((key, devIx(0)), module)
+        CUDAManagerCachedModule.getInstance.put((key, devIx(0)), module)
         module
       })
     }
@@ -122,6 +121,7 @@ private class CUDAManager {
   }
  
   def allocateGPUMemory(sz: Int): CUdeviceptr = {
+    if (GPUSparkEnv.isAutoCacheEvictEnabled)  unCacheGPULRU(sz)
     val deviceInput = new CUdeviceptr()
     cuMemAlloc(deviceInput, sz)
     deviceInput
@@ -129,6 +129,25 @@ private class CUDAManager {
  
   private[gpuenabler] def freeGPUMemory(ptr: Pointer) {
     JCuda.cudaFree(ptr)
+  }
+  
+  private[gpuenabler] def unCacheGPULRU(sz: Int) = {
+    /* remove cached RDDs on GPU automatically
+     * without ignoring  cache (unCache), which programmers inserted.
+     * Since spark can't estimate RDD size via distributed data
+     * on eacn nodes, this method removes cached RDDs on GPU
+     * in the partitions units.
+     * this method is called on allocateGPUMemory.
+     * In order to reuse cached RDDs on gpu as much as possible,
+     * adopt LRU manner.
+     */
+    val freeMemArray = new Array[Long](1)
+    val totalMemArray = new Array[Long](1)
+    jcuda.runtime.JCuda.cudaMemGetInfo(freeMemArray, totalMemArray)
+    while( (totalMemArray(0) - freeMemArray(0) + sz) > GPUSparkEnv.gpuMemCap ) {
+      GPUSparkEnv.get.gpuMemoryManager.autoUnCacheGPU(0)
+      jcuda.runtime.JCuda.cudaMemGetInfo(freeMemArray, totalMemArray)
+    }
   }
 }
  

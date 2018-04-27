@@ -113,10 +113,11 @@ private[gpuenabler] class HybridIterator[T: ClassTag](inputArr: Array[T],
   }
 
   private def gpuCache: Boolean = GPUSparkEnv.get.gpuMemoryManager.cachedGPURDDs.contains(rddId)
+  private def gpuAutoCache: Boolean = GPUSparkEnv.get.gpuMemoryManager.autoCachedGPURDDs.contains(rddId)
 
   // Function to free the allocated GPU memory if the RDD is not cached.
   def freeGPUMemory: Unit = {
-    if (!gpuCache) {
+    if (!(gpuCache || gpuAutoCache)) {
       // Make sure the CPU ptrs are populated before GPU memory is freed up.
       copyGpuToCpu
       if (_listKernParmDesc == null) return

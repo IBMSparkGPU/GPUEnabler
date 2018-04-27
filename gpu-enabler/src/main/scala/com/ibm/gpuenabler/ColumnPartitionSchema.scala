@@ -22,11 +22,18 @@ import java.io.{ObjectInputStream, ObjectOutputStream}
 import org.apache.spark.gpuenabler.CUDAUtils
 import org.apache.spark.util.Utils
 
+
 import scala.collection.immutable.HashMap
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe
 import scala.reflect.runtime.universe.{TermSymbol, Type, typeOf}
 
+
+import scala.collection.mutable.ArrayBuffer
+import scala.io.Source
+import scala.reflect.ClassTag
+import scala.util.Try
+import scala.util.control.{ControlThrowable, NonFatal}
 // Some code taken from org.apache.spark.sql.catalyst.ScalaReflection
 
 // Dummy object to make the code work with TRL samples program

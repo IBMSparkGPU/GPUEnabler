@@ -123,12 +123,14 @@ object SparkGPULR {
         dmulvs(p.x, (1 / (1 + exp(-p.y * (ddotvv(wbc.value, p.x)))) - 1) * p.y),
         mapFunction.value, outputArraySizes = Array(D),
         inputFreeVariables = Array(wbc.value)
-      ).cacheGpu
+      )
       val gradient = mapRdd.reduceExtFunc((x: Array[Double], y: Array[Double]) => daddvv(x, y),
         reduceFunction.value, outputArraySizes = Array(D))
+
       val ms1 = (System.nanoTime - now1) / 1000000
       println(s"GPU iteration : $i in $ms1 ms")
       mapRdd.unCacheGpu()
+
       w = dsubvv(w, gradient)
     }
 

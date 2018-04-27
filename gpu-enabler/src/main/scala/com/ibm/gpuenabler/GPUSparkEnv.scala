@@ -80,6 +80,39 @@ private[gpuenabler] object GPUSparkEnv {
   val isAutoCacheEnabled: Boolean =
     if (SparkEnv.get.conf.getInt("spark.gpuenabler.autocache", 1) == 1) true else false
 
+  /* Auto Cache Eviction in GPU Enabled by default
+   * Eviction threshold is an equiped VRAM capacity by default
+   *
+   * Auto Cache Eviction discards auto-cached RDDs
+   * Programmers set number N to conf.set("spark.gpuenabler.autocacheevict.gpumem","N").
+   * The behavior of Auto Cache Eviction branches into two types:
+   *   - ( 0 < N <= "VRAM_size" )      -> Auto Cache Evict is enabled.
+   *                                      If an used space of VRAM becomes more than "N" MB,
+   *                                      Auto Cache Evict discards auto-cached RDDs in LRU manner.
+   *   - ( "VRAM_size" < N || N <= 0)  -> Auto Cache Evict is enabled.
+   *                                      If an used space of VRAM becomes more than "VRAM_size",
+   *                                      Auto Cache Evict discards auto-cached RDDs in LRU manner.
+   */
+  val isAutoCacheEvictEnabled: Boolean =
+    if (SparkEnv.get.conf.getInt("spark.gpuenabler.autocacheevict.isenabled", 1) == 1) true else false
+
+  val gpuMemCap: Long= {
+    import jcuda.runtime.JCuda
+    val freeMemArray = new Array[Long](1)
+    val totalMemArray = new Array[Long](1)
+    jcuda.runtime.JCuda.cudaMemGetInfo(freeMemArray, totalMemArray)
+    val evictThreshold = SparkEnv.get.conf.getInt("spark.gpuenabler.autocacheevict.gpumem", 0) * 1000000.toLong
+    if (isAutoCacheEvictEnabled) {
+      if (evictThreshold <= totalMemArray(0) && evictThreshold > 0){
+        evictThreshold
+      } else {
+        totalMemArray(0)
+      }
+    } else {
+      0
+    }
+  }
+
   def get = {
       val curSparkEnv = SparkEnv.get
       synchronized {
