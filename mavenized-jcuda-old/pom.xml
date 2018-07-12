@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.ibm</groupId>
+    <artifactId>gpu-enabler-parent</artifactId>
+    <version>2.0.0</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+    <groupId>org.mystic</groupId>
+    <artifactId>mavenized-jcuda</artifactId>
+    <version>0.1.2</version>
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Set needed version of JCuda here >
+        <jcuda.version>0.7.5b</jcuda.version -->
+    </properties>
+    <dependencies>
+        <!--JCuda Java libs-->
+        <dependency>
+            <groupId>jcuda</groupId>
+            <artifactId>jcuda</artifactId>
+            <version>${jcuda.version}</version>
+        </dependency>
+    </dependencies>
+    <repositories>
+        <repository>
+            <id>jcuda.local</id>
+            <name>JCuda</name>
+            <url>file:${project.basedir}/repo</url>
+        </repository>
+    </repositories>
+    <build>
+        <defaultGoal>package</defaultGoal>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.2</version>
+                <configuration>
+                    <source>1.7</source>
+                    <target>1.7</target>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+    <!--Set of auto detected profiles for different OS family/architecture-->
+    <profiles>
+        <!--New profile for JCuda version 0.6.0RC for Win-x86_64 and higher
+
+            will work automatically, thanks to auto activation
+        -->
+        <profile>
+            <id>windows-x86_64</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                    <arch>amd64</arch>
+                </os>
+            </activation>
+            <properties>
+                <dllJ.version>windows-x86_64</dllJ.version>
+            </properties>
+            <dependencies>
+                <!--JCuda native dll libs-->
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCudaDriver</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+            </dependencies>
+        </profile>
+        <!--New profile for JCuda version 0.6.0RC for Win-x86 and higher
+
+       will work automatically, thanks to auto activation
+   -->
+        <profile>
+            <id>windows-x86</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                    <arch>x86</arch>
+                </os>
+            </activation>
+            <properties>
+                <dllJ.version>windows-x86</dllJ.version>
+            </properties>
+            <dependencies>
+                <!--JCuda native dll libs-->
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCudaDriver</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>JCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dllJ.version}</classifier>
+                    <type>dll</type>
+                </dependency>
+            </dependencies>
+        </profile>
+        <!--New profile for JCuda version 0.6.0 for Linux-x86_64 and higher
+
+     will work automatically, thanks to auto activation
+ -->
+        <profile>
+            <id>unix-x86_64</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <arch>amd64</arch>
+                </os>
+            </activation>
+            <properties>
+                <libJ.version>linux-x86_64</libJ.version>
+            </properties>
+            <!--JCuda native so libs-->
+            <dependencies>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCudaDriver</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+            </dependencies>
+        </profile>
+
+        <!--
+        New profile for JCuda version 0.7.0a for PPC 64
+
+       will work automatically, thanks to auto activation
+        -->
+        <profile>
+            <id>ppc64</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <arch>ppc64</arch>
+                </os>
+            </activation>
+            <properties>
+                <libJ.version>linux-ppc_64</libJ.version>
+            </properties>
+            <!--JCuda native so libs-->
+            <dependencies>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCudaDriver</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+            </dependencies>
+        </profile>
+
+        <!--
+        New profile for JCuda version 0.7.0a for PPC 64 LE
+
+       will work automatically, thanks to auto activation
+        -->
+        <profile>
+            <id>ppc64le</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <arch>ppc64le</arch>
+                </os>
+            </activation>
+            <properties>
+                <libJ.version>linux-ppc_64</libJ.version>
+            </properties>
+            <!--JCuda native so libs-->
+            <dependencies>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCudaDriver</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${libJ.version}</classifier>
+                    <type>so</type>
+                </dependency>
+            </dependencies>
+        </profile>
+
+        <!--New profile for JCuda version 0.6.0 for Mac x86_64
+
+       will work automatically, thanks to auto activation
+   -->
+        <profile>
+            <id>apple-x86_64</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                    <arch>x86_64</arch>
+                </os>
+            </activation>
+            <properties>
+                <dylibJ.version>apple-x86_64</dylibJ.version>
+            </properties>
+            <!--JCuda native dylib libs-->
+            <dependencies>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCudaDriver</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dylibJ.version}</classifier>
+                    <type>dylib</type>
+                </dependency>
+                <dependency>
+                    <groupId>jcuda</groupId>
+                    <artifactId>libJCudaRuntime</artifactId>
+                    <version>${jcuda.version}</version>
+                    <classifier>${dylibJ.version}</classifier>
+                    <type>dylib</type>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+</project>

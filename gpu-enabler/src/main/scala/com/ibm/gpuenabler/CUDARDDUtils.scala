@@ -21,6 +21,7 @@ import org.apache.spark.rdd._
 import org.apache.spark.storage.RDDBlockId
 import org.apache.spark.{Partition, TaskContext, _}
 
+import java.lang.Runtime
 import scala.language.implicitConversions
 import scala.reflect.ClassTag
 import org.apache.spark.api.java.JavaRDD
@@ -89,6 +90,10 @@ private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
       // Use the block ID of this particular (rdd, partition)
       val blockId = RDDBlockId(this.id, split.index)
 
+      // Handle empty partitions.
+      if (firstParent[T].iterator(split, context).length <= 0) 
+        return new Array[U](0).toIterator
+      
       val inputHyIter = firstParent[T].iterator(split, context) match {
         case hyIter: HybridIterator[T] => {
           hyIter
@@ -105,14 +110,14 @@ private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
         }
       }
 
-      val resultIter = kernel.compute[U, T](inputHyIter,
+     val resultIter = kernel.compute[U, T](inputHyIter,
         Seq(inputColSchema, outputColSchema), None,
         outputArraySizes, inputFreeVariables, Some(blockId))
 
-      resultIter
-    } else {
-      f(context, split.index, firstParent[T].iterator(split, context))
-    }
+     resultIter
+   } else {
+     f(context, split.index, firstParent[T].iterator(split, context))
+   }
   }
 }
 
@@ -140,7 +145,7 @@ private[gpuenabler] class ConvertGPUPartitionsRDD[T: ClassTag](
         hyIter
       }
       case iter: Iterator[T] => {
-        // println("Converting Regular Iterator to hybridIterator")
+    	// println("Converting Regular Iterator to hybridIterator")
         // val parentBlockId = RDDBlockId(firstParent[T].id, split.index)
         val hyIter = new HybridIterator[T](iter.toArray, inputColSchema,
           null, Some(blockId))
@@ -207,8 +212,10 @@ class JavaCUDARDD[T: ClassTag](override val rdd: RDD[T])
   }
 
   def cacheGpu() = wrapRDD(rdd.cacheGpu())
+  def autoCacheGpu() = wrapRDD(rdd.autoCacheGpu())
 
   def unCacheGpu() = wrapRDD(rdd.unCacheGpu())
+  def autoUnCacheGpu() = wrapRDD(rdd.autoUnCacheGpu())
 }
 
 object JavaCUDARDD {
@@ -232,11 +239,87 @@ object JavaCUDARDD {
   */
 object CUDARDDImplicits {
 
+  private[gpuenabler] abstract class apiType
+  private[gpuenabler] case object CPU_ANYDEP extends apiType
+  private[gpuenabler] case object GPU_NARROW extends apiType
+  private[gpuenabler] case object GPU_WIDE extends apiType
+
   implicit class CUDARDDFuncs[T: ClassTag](rdd: RDD[T])
     extends Serializable {
 
     def sc = rdd.sparkContext
+    
+    def autoCacheGPU(rdd: RDD[_]): Unit = {
+      val lineage = scala.collection.mutable.Set[RDD[_]]()
+      /**
+        * If calling this method in an action before the runJob,
+        * GPUEnabler cache RDDs on GPU automatically
+        * to remove redundant data transfers in a sequent of these
+        * every time GPUEnabler invoke actions has a sequent of GPU methods,
+        *
+        * gpuApiFlag shows the child type of a RDD.
+        * When the child RDD's API
+        *  case CPU_ANYDEP => CPU API (ex, mapRDD)
+        *  case GPU_NARROW => GPU API which is executed on single node (don't divide a stage. ex, mapGPURDD).
+        *  case GPU_WIDE => GPU API which is executed on multiple nodes with communication (divide a stage into two. ex,shuffleGPURDD).
+        */
 
+      if(judgeApiType(rdd) == GPU_NARROW) rdd.autoCacheGpu()
+      trackLineage(rdd, GPU_NARROW)
+
+      def trackLineage(rdd: RDD[_], gpuApiFlag: apiType): Unit = {
+        val len = rdd.dependencies.length
+        len match {
+          case 0 => Unit
+          case 1 =>
+            val d = rdd.dependencies.head
+            val apiType = judgeApiType(d.rdd)
+            classifyDep(d.rdd, apiType, gpuApiFlag)
+          case _ =>
+            val frontDeps = rdd.dependencies.take(len - 1)
+            frontDeps.foreach( d => {
+              val apiType = judgeApiType(d.rdd)
+              classifyDep(d.rdd, apiType, gpuApiFlag)
+            })
+            val lastDep = rdd.dependencies.last
+            val apiType = judgeApiType(lastDep.rdd)
+            classifyDep(lastDep.rdd, apiType, gpuApiFlag)
+        }
+      }
+
+      def classifyDep(rdd: RDD[_], apiType: apiType, gpuApiFlag: apiType): Unit = {
+        apiType match {
+          case CPU_ANYDEP =>
+            trackLineage(rdd, CPU_ANYDEP)
+          case GPU_NARROW =>
+            if(gpuApiFlag == GPU_NARROW) rdd.autoCacheGpu()
+            trackLineage(rdd, GPU_NARROW)
+          case GPU_WIDE =>
+            trackLineage(rdd, GPU_NARROW)
+        }
+      }
+
+   /**
+     * This function judges whether a RDD's dependency type is
+     * to divide a stage or not.
+     * when implement a new GPUPartitionsRDD,
+     * to classify and write a new it on this method's "match" branch avoids
+     * redundant data transfers between GPU APIs.
+     * Classified number 1 and 0 is a dependency type dividing a stage
+     * or not respectively.
+     */
+
+      def judgeApiType(rdd: RDD[_]): apiType = {
+        val rddType = rdd.getClass()
+        val mapGPUPartitionsClass = classOf[MapGPUPartitionsRDD[_,_]]
+        val convertGPUPartitionsClass = classOf[ConvertGPUPartitionsRDD[_]]
+        rddType match {
+          case x if x == mapGPUPartitionsClass => GPU_NARROW
+          case x if x == convertGPUPartitionsClass=> GPU_NARROW
+          case _ => CPU_ANYDEP
+        }
+      }
+    }
     /**
       * This function is used to mark the respective RDD's data to
       * be cached in GPU for future computation rather than cleaning it
@@ -249,6 +332,9 @@ object CUDARDDImplicits {
     def cacheGpu() = {
       GPUSparkEnv.get.gpuMemoryManager.cacheGPUSlaves(rdd.id); rdd
     }
+    def autoCacheGpu() = {
+      GPUSparkEnv.get.gpuMemoryManager.autoCacheGPUSlaves(rdd.id); rdd
+    }
 
     /**
       * This function is used to clean up all the caches in GPU held
@@ -256,6 +342,9 @@ object CUDARDDImplicits {
       */
     def unCacheGpu() = {
       GPUSparkEnv.get.gpuMemoryManager.unCacheGPUSlaves(rdd.id); rdd
+    }
+    def autoUnCacheGpu() = {
+      GPUSparkEnv.get.gpuMemoryManager.autoUnCacheGPUSlaves(rdd.id); rdd
     }
 
     /**
@@ -361,7 +450,7 @@ object CUDARDDImplicits {
           }
         }
       }
-
+      if (GPUSparkEnv.isAutoCacheEnabled) autoCacheGPU(rdd)
       sc.runJob(rdd, reducePartition, 0 until rdd.partitions.length, mergeResult)
       jobResult.getOrElse(throw new UnsupportedOperationException("empty collection"))
     }
@@ -385,7 +474,7 @@ object CUDARDDImplicits {
       val reducePartition: (TaskContext, Iterator[T]) => Option[T] =
         (ctx: TaskContext, data: Iterator[T]) => {
           // Handle partitions with no data
-          if (data.length > 0) {
+          if (!(data.isEmpty)) {
             data match {
               case col: HybridIterator[T] =>
                 if (col.numElements != 0) {
@@ -408,6 +497,7 @@ object CUDARDDImplicits {
           }
         }
       }
+      if (GPUSparkEnv.isAutoCacheEnabled) autoCacheGPU(rdd)
       sc.runJob(rdd, reducePartition, 0 until rdd.partitions.length, mergeResult)
       jobResult.getOrElse(throw new UnsupportedOperationException("empty collection"))
     }

@@ -31,14 +31,19 @@ else
   exit 1
 fi
 
-EXAMPLE_MASTER=${MASTER:-"local[*]"}
+if [ -n "$1" ]; then
+  EXAMPLE_ARGS="$@"
+  EXAMPLE_ARGS=`echo $EXAMPLE_ARGS| sed "s/ \+/|/g"`
+fi
+
 
 if [[ ! $EXAMPLE_CLASS == com.ibm.gpuenabler* ]]; then
   EXAMPLE_CLASS="com.ibm.gpuenabler.$EXAMPLE_CLASS"
 fi
 
-echo "Executing : mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs=\"$EXAMPLE_MASTER\""
+echo "Executing : mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs=\"$EXAMPLE_ARGS\""
 
+echo $EXAMPLES_DIR
 cd $EXAMPLES_DIR
 
-mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs="$EXAMPLE_MASTER"
+mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs="$EXAMPLE_ARGS"

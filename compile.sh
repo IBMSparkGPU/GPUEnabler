@@ -27,6 +27,9 @@ if [[ $CUDA != 0 ]]; then
   elif [[ $CUDAVER == "7.0" ]]; then
     echo "Identified CUDA version is 7.0a"
     CUDAVER="jcuda70a"
+  elif [[ $CUDAVER == "8.0" ]]; then
+    echo "Identified CUDA version is 8.0"
+    CUDAVER="jcuda80"
   else
     echo "Not a supported version. Installation will fallback to default"
   fi

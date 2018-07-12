@@ -90,7 +90,7 @@
           <junitxml>.</junitxml>
           <forkMode>once</forkMode>
           <filereports>WDF TestSuite.txt</filereports>
-          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms22g -Xmx25G -Xmn20G</argLine>
+          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms12g -Xmx25G -Xmn10G</argLine>
         </configuration>
       </plugin>
       <plugin>
@@ -289,7 +289,13 @@
     <dependency>
       <groupId>org.scala-lang</groupId>
       <artifactId>scala-library</artifactId>
-      <version>2.11.7</version>
+      <version>2.11.8</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>14.0.1</version>
       <scope>compile</scope>
     </dependency>
     <dependency>
@@ -325,7 +331,7 @@
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-core_2.11</artifactId>
-      <version>2.0.0</version>
+      <version>2.1.0</version>
       <scope>compile</scope>
       <exclusions>
         <exclusion>
@@ -343,9 +349,15 @@
       </exclusions>
     </dependency>
     <dependency>
-      <groupId>org.scala-lang</groupId>
-      <artifactId>scala-xml</artifactId>
-      <version>2.11.0-M4</version>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-sql_2.11</artifactId>
+      <version>2.1.0</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-catalyst_2.11</artifactId>
+      <version>2.1.0</version>
       <scope>compile</scope>
     </dependency>
     <dependency>
