@@ -89,7 +89,6 @@ private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
     if (GPUSparkEnv.get.isGPUEnabled) {
       // Use the block ID of this particular (rdd, partition)
       val blockId = RDDBlockId(this.id, split.index)
-      
       val inputHyIter = firstParent[T].iterator(split, context) match {
         case hyIter: HybridIterator[T] => {
           hyIter
