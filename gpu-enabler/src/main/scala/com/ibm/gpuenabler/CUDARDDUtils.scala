@@ -89,11 +89,6 @@ private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
     if (GPUSparkEnv.get.isGPUEnabled) {
       // Use the block ID of this particular (rdd, partition)
       val blockId = RDDBlockId(this.id, split.index)
-
-      // Handle empty partitions.
-      if (firstParent[T].iterator(split, context).length <= 0) 
-        return new Array[U](0).toIterator
-
       val inputHyIter = firstParent[T].iterator(split, context) match {
         case hyIter: HybridIterator[T] => {
           hyIter
@@ -101,7 +96,10 @@ private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
         case iter: Iterator[T] => {
           // println("Converting Regular Iterator to hybridIterator")
           val parentBlockId = RDDBlockId(firstParent[T].id, split.index)
-          val hyIter = new HybridIterator[T](iter.toArray, inputColSchema,
+          val parentRDDArray = iter.toArray
+          if (parentRDDArray.length <= 0)
+            return new Array[U](0).toIterator
+          val hyIter = new HybridIterator[T](parentRDDArray, inputColSchema,
             kernel.inputColumnsOrder, Some(parentBlockId))
           hyIter
         }
